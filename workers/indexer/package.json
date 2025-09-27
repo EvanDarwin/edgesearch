@@ -1,0 +1,8 @@
+{
+    "name": "@evandarwin/edgesearch_indexer",
+    "private": true,
+    "license": "MIT",
+    "scripts": {
+        "build": "cargo install -q worker-build && worker-build --release"
+    }
+}

@@ -1,2 +1,10 @@
+# JS excludes
+node_modules/
+dist/
+
+# Rust excludes
 /Cargo.lock
-/target/
+build/
+target/
+
+.DS_Store

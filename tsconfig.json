@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"alwaysStrict": true,
+		"esModuleInterop": true,
+		"lib": ["esnext", "webworker"],
+		"module": "nodenext",
+		"target": "esnext",
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitAny": true,
+		"noImplicitReturns": true,
+		"noImplicitThis": true,
+		"noUnusedParameters": true,
+		"noEmit": true,
+		"strict": true,
+		"strictFunctionTypes": true,
+		"strictNullChecks": true,
+		"strictPropertyInitialization": true
+	}
+}

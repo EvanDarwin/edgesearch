@@ -1,0 +1,12 @@
+packages:
+  - workers/*
+
+catalog:
+  typescript: ^5.9.2
+  wrangler: ^4.40.1
+
+onlyBuiltDependencies:
+  - core-js
+  - esbuild
+  - sharp
+  - workerd
