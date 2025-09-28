@@ -14,6 +14,11 @@ pub static PREFIX_KEYWORD: &str = "kw:";
 
 pub const INDEX_VERSION_V1: u8 = 1u8;
 
+pub static ENV_VAR_N_SHARDS: &str = "N_SHARDS";
+pub static DEFAULT_N_SHARDS: u32 = 48;
+pub static DEFAULT_YAKE_NGRAMS: u8 = 3;
+pub static DEFAULT_YAKE_MIN_CHARS: u8 = 2;
+
 pub trait KvEntry: Sized + Serialize + Deserialize<'static> {
     type Key: Into<String>;
     fn get_kv_key(&self) -> Self::Key;
@@ -31,7 +36,7 @@ pub enum DataStoreError {
     Worker(#[from] worker::Error),
 }
 
-trait KvPersistent: KvEntry + Deserialize<'static> + Serialize {
+pub trait KvPersistent: KvEntry + Deserialize<'static> + Serialize {
     async fn write(&mut self, store: &KvStore) -> Result<(), DataStoreError> {
         let kv_key = self.get_kv_key().into();
         let serialized = serde_json::to_string(self).unwrap();

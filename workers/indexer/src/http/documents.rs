@@ -57,7 +57,11 @@ pub async fn handle_update_document(mut req: Request, ctx: RouteContext<()>) -> 
 
             let mut document = document_result.unwrap();
             let document_body = req.text().await?;
-            let revision = document.update(&store, document_body, false).await.unwrap();
+            let env = &ctx.env;
+            let revision = document
+                .update(&store, env, document_body, false)
+                .await
+                .unwrap();
 
             return Response::from_json(&UpdateDocumentResponse {
                 updated: true,
@@ -91,6 +95,7 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
         let mut document = Document::new(index);
 
         if let Ok(document_body) = req.text().await {
+            let env = &ctx.env;
             let store = get_kv_data_store(&ctx);
 
             // See if the document exists already
@@ -106,7 +111,7 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
 
             let query = req.query::<AddDocumentQueryParams>()?;
             document.set_language(query.lang.unwrap_or(IsoCode639_1::EN));
-            if let Ok(_) = document.update(&store, document_body, false).await {
+            if let Ok(_) = document.update(&store, env, document_body, false).await {
                 return Response::from_json(&document);
             } else {
                 return Response::error(

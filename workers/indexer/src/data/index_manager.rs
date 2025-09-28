@@ -5,17 +5,17 @@ use worker::kv::KvStore;
 use crate::{
     data::{
         index::{get_index_key, IndexDocument},
-        DataStoreError, PREFIX_INDEX,
+        DataStoreError, INDEX_VERSION_V1, PREFIX_DOCUMENT, PREFIX_INDEX,
     },
     edge_debug, edge_log, edge_warn,
 };
 
-pub struct IndexManager {
-    store: Arc<KvStore>,
+pub struct IndexManager<'a> {
+    store: &'a Arc<KvStore>,
 }
 
-impl IndexManager {
-    pub fn new(store: Arc<KvStore>) -> IndexManager {
+impl<'a> IndexManager<'a> {
+    pub fn new(store: &'a Arc<KvStore>) -> IndexManager<'a> {
         return IndexManager { store };
     }
 
@@ -49,7 +49,7 @@ impl IndexManager {
             .map_err(DataStoreError::Kv)?;
 
         if document.is_none() {
-            edge_debug!("IndexManager", index, "index not found in KV");
+            edge_warn!("IndexManager", index, "index not found in KV");
             return Err(DataStoreError::NotFound(index.to_string()));
         }
 
@@ -62,19 +62,22 @@ impl IndexManager {
         let existing_version = self.read_index(index_name).await;
         // Return the existing version if it exists NOT AN ERROR
         if existing_version.is_ok() {
-            edge_debug!(
+            edge_warn!(
                 "IndexManager",
                 index_name,
                 "index already exists, skipping creation"
             );
             return Ok(existing_version.unwrap());
-        } else {
-            let err = existing_version.err().unwrap();
-            edge_warn!("IndexManager", index_name, "index does not exist: {}", err);
         }
 
-        let index_doc = &IndexDocument::new(index_name);
-        let index_json = serde_json::to_string(index_doc).map_err(DataStoreError::Serialization)?;
+        let index_doc = IndexDocument {
+            index: index_name.to_string(),
+            docs_count: 0,
+            version: INDEX_VERSION_V1,
+            created: worker::Date::now().as_millis().into(),
+        };
+        let index_json =
+            serde_json::to_string(&index_doc).map_err(DataStoreError::Serialization)?;
 
         self.store
             .put(get_index_key(index_name).as_str(), &index_json)
@@ -93,5 +96,18 @@ impl IndexManager {
         self.store.delete(&key).await.map_err(DataStoreError::Kv)?;
         edge_log!("IndexManager", index_name, "deleted index");
         Ok(())
+    }
+
+    pub async fn count_index_documents(&self, index: &str) -> Result<u32, DataStoreError> {
+        let search_prefix = format!("{}:{}", index, PREFIX_DOCUMENT);
+        let list_response = self
+            .store
+            .list()
+            .prefix(search_prefix)
+            .execute()
+            .await
+            .map_err(DataStoreError::Kv)?;
+
+        Ok(list_response.keys.len() as u32)
     }
 }

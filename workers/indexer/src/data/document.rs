@@ -4,6 +4,8 @@ use std::sync::Arc;
 use crate::data::keyword_shard::KeywordShardData;
 use crate::data::DocumentRef;
 use crate::data::IndexName;
+use crate::data::DEFAULT_YAKE_MIN_CHARS;
+use crate::data::DEFAULT_YAKE_NGRAMS;
 use crate::data::PREFIX_DOCUMENT;
 use crate::edge_debug;
 use crate::edge_warn;
@@ -15,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sha2::Sha256;
 use worker::kv::KvStore;
+use worker::Env;
 use yake_rust::{Config, StopWords};
 
 use crate::data::{DataStoreError, KvEntry, KvPersistent};
@@ -84,6 +87,26 @@ static STOPWORDS_CACHE: Lazy<std::collections::HashMap<String, StopWords>> = Laz
     map
 });
 
+fn get_yake_config_from_env(env: &Env) -> Config {
+    let ngrams = env
+        .var("YAKE_NGRAMS")
+        .ok()
+        .map(|v| v.to_string().parse::<u8>().unwrap_or(3))
+        .unwrap_or(DEFAULT_YAKE_NGRAMS);
+    let min_chars = env
+        .var("YAKE_MINIMUM_CHARS")
+        .ok()
+        .map(|v| v.to_string().parse::<u8>().unwrap_or(2))
+        .unwrap_or(DEFAULT_YAKE_MIN_CHARS);
+
+    Config {
+        ngrams: ngrams as usize,
+        minimum_chars: min_chars as usize,
+        remove_duplicates: true,
+        ..Config::default()
+    }
+}
+
 impl Document {
     pub fn get_uuid(&self) -> String {
         return self.uuid.clone();
@@ -123,6 +146,7 @@ impl Document {
     pub async fn update(
         &mut self,
         store: &KvStore,
+        env: &Env,
         document_body: String,
         recalculate_lang: bool,
     ) -> Result<u32, DataStoreError> {
@@ -148,13 +172,7 @@ impl Document {
             let sw = StopWords::predefined(&lang_str.as_str()).unwrap();
             sw
         };
-        let yake_config = Config {
-            ngrams: 3,
-            minimum_chars: 2,
-            remove_duplicates: true,
-            ..Config::default()
-        };
-
+        let yake_config = get_yake_config_from_env(env);
         let _keywords: Vec<(String, f64)> =
             yake_rust::get_n_best(50, &document_body, &stopwords, &yake_config)
                 .iter()
@@ -192,7 +210,7 @@ impl Document {
                 let removed_kw = removed_kw.as_ref();
                 async move {
                     let mut shard =
-                        KeywordShardData::from_keyword(store, index, doc_id, &removed_kw)
+                        KeywordShardData::from_keyword(store, env, index, doc_id, &removed_kw)
                             .await
                             .ok()
                             .unwrap();
@@ -230,10 +248,11 @@ impl Document {
                 let added_kw = added_kw.clone();
                 let score = *score;
                 async move {
-                    let mut shard = KeywordShardData::from_keyword(store, index, doc_id, &added_kw)
-                        .await
-                        .ok()
-                        .unwrap();
+                    let mut shard =
+                        KeywordShardData::from_keyword(store, env, index, doc_id, &added_kw)
+                            .await
+                            .ok()
+                            .unwrap();
 
                     edge_debug!(
                         "Documents",

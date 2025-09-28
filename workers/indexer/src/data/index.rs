@@ -4,9 +4,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use worker::kv::KvStore;
 
-use crate::data::{
-    DataStoreError, IndexName, KvEntry, KvPersistent, INDEX_VERSION_V1, PREFIX_INDEX,
-};
+use crate::data::{DataStoreError, IndexName, KvEntry, KvPersistent, PREFIX_INDEX};
 
 static RESERVED_INDEXES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
@@ -15,22 +13,15 @@ static RESERVED_INDEXES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m
 });
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndexDocument {
     pub index: IndexName,
+    pub docs_count: u32,
     pub version: u8,
     pub created: u64,
 }
 
 impl IndexDocument {
-    pub fn new(index: &str) -> IndexDocument {
-        return IndexDocument {
-            index: index.to_string(),
-            version: INDEX_VERSION_V1,
-            created: worker::Date::now().as_millis().into(),
-        };
-    }
-
     pub fn is_reserved_index(index: &str) -> bool {
         return RESERVED_INDEXES.contains_key(index);
     }
@@ -54,7 +45,21 @@ impl KvPersistent for IndexDocument {
             .get(key)
             .json::<IndexDocument>()
             .await
+            .map_err(DataStoreError::Kv)?
+            .unwrap();
+        Ok(result)
+    }
+
+    async fn write(&mut self, store: &KvStore) -> Result<(), DataStoreError> {
+        store
+            .put(
+                self.get_kv_key().as_str(),
+                serde_json::to_string(self).unwrap().as_str(),
+            )
+            .map_err(DataStoreError::Kv)?
+            .execute()
+            .await
             .map_err(DataStoreError::Kv)?;
-        result.ok_or_else(|| DataStoreError::NotFound(key.to_string()))
+        Ok(())
     }
 }

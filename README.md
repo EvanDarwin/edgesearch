@@ -1,33 +1,86 @@
 # Edgesearch
 
-Build a full text search API using Cloudflare Workers and WebAssembly.
+A document store with full-text search built to run on Cloudflare Workers and KV, with [workers-rs](https://github.com/cloudflare/workers-rs) and WebAssembly.
 
 ## Features
-
-- Uses an [inverted index](https://en.wikipedia.org/wiki/Inverted_index) and [compressed bit sets](https://roaringbitmap.org/).
 - No servers or databases to create, manage, or scale.
-- Packs large amounts of data in relatively few [KV entries](https://www.cloudflare.com/products/workers-kv/).
+- Simple API key authentication (just set `API_KEY` in your Worker env)
+- English keyword + language detection on document submission (more coming soon)
+- Organize documents and keywords into unique indexes
+- Simple query language, example: `("word" || "wordle") && ~"pop"`
+- Look up all documents for an individual keyword (`/:index/keyword/:keyword`)
+- Balances KV storage usage for fast search + document store.
 - Runs fast [WASM](https://webassembly.org/) code at Cloudflare edge PoPs for low-latency requests.
+- Designed to scale (Cloudflare KV has no limit)
+- Options to balance between high-write scenarios and high-read scenarios. 
+- [Hash table](https://en.wikipedia.org/wiki/Hash_table) sharding for minimizing data loss over slow KV replication
 
-## Demos
+## Bonus Features
+- Will definitely burn through your entire Cloudflare KV free plan in a day
+- There is technically no limit to how many 2MB documents KV will store
+- Searching is really fast
+- Questionably written Rust (room for improvement)
 
-Check out the [demo](./demo) folder for live demos with source code.
+## Drawbacks
+
+> ### High-volume Writing
+>
+> Due to the latency required for maintaining synchronicity in a system with datacenters all over the globe, currently Cloudflare only promises KV data is written and distributed after ~1sec.
+>
+> EdgeSearch attempts to solve this solution with a simple hash shard based on the document's
+> ID. We provide a configuration value via the `N_SHARDS` worker environment variable.
+> 
+> For a better understanding of how to optimize `N_SHARDS`:
+>   * `N_SHARDS=2`
+>     - An extremely conservative number for sharding
+>     - If more than one write to a keyword file happens at a time, data may be overwritten
+>     - Maximum of 2 KV entries for a single keyword
+>   * `N_SHARDS=48`
+>     - More reasonable
+>     - Much reduced opportunity for overwriting data when there are more shards
+>     - Maximum of 48 KV entries for a single keyword
+>   * `N_SHARDS=512`
+>     - Optimized for writing
+>     - RIP your KV limits
+>     - If you get a conflict you're unlucky :(
+>
+> 
+> ### KV Usage
+>
+> As shown above, the sharding number you choose significantly affects the size of your actual KV storage used.
+> By default, the application default is `48`, which I think is a reasonable balance to start with.
 
 ## How it works
 
-Edgesearch builds a reverse index by mapping terms to a compressed bit set (using Roaring Bitmaps) of IDs of documents containing the term, and creates a custom worker script and data to upload to Cloudflare Workers.
+Deploy the Rust WASM worker to your Cloudflare account and begin adding documents, searching, and querying via JSON over HTTPS.
 
-### Data
+### Create an Index
 
-An array of term-documents pairs sorted by term is built, where *term* is a string and *documents* is a compressed bit set.
+First, create a new index called `default` (or whichever index name you wish) that will store your 
+document and keyword data:
 
-This array is then split into chunks of up to 25 MiB, as each Cloudflare Workers KV entry can hold a value up to 25 MiB in size.
+```bash
+curl -X POST https://edgesearch.yourname.workers.dev/default
+```
 
-To find the documents bit set associated with a term, a binary search is done to find the appropriate chunk, and then the pair within the chunk.
+### Submit a Document
 
-The same structure and process is used to store and retrieve document contents.
+Submitting a document will automatically run language detection and keyword processing.  You can upload a file of any byte data you want. Right now it will throw YAKE at it and see what comes out. What you put in it is up to you.
 
-Packing multiple bit sets/documents reduces read/write costs and deploy times, and improves caching and execution speed due to fewer fetches.
+The document data will be stored indefinitely and is acessible at the `document_id` that is returned 
+during creation. 
+
+> Nice Features To Do:
+>  - [ ] Improved JSON processing
+>  - [ ] Improved HTML processing
+>  - [ ] Improved Binary processing
+>
+
+Now, let's index a new document on the `default` index we just created.
+
+```bash
+curl -X POST -d 'lorem ipsum' https://edgesearch.yourname.workers.dev/default/doc
+```
 
 ### Searching
 
@@ -39,100 +92,31 @@ Search terms have an associated mode. There are three modes that match documents
 |Contain|Has at least one term with this mode.|
 |Exclude|Has none of the terms with this mode.|
 
-For example, a document with terms `a`, `b`, `c`, `d`, and `e` would match the query `require (d, a) contain (g, b, f) exclude (h, i)`.
 
-The results are generated by doing bitwise operations across multiple bit sets.
-The general computation could be summarised as:
-
-```c
-result = (req_a & req_b & req_c & ...) & (con_a | con_b | con_c | ...) & ~(exc_a | exc_b | exc_c | ...)
+#### Search Query Syntax
+```rust
+("a" && "b" && "c") && ("e" || "f" || "g") && ~("x" || "y" || "z")
 ```
 
-### Cloudflare
+Including any keyword will trigger a lookup for all keyword shards, allowing us to collect the full list of related documents and always be up to date.
 
-There are some nice advantages when only using Cloudflare Workers:
-
-- Faster than a VM or container with less cold starts, as code is run on a V8 Isolate.
-- Naturally distributed to the edge for very low latency.
-- Takes advantage of Cloudflare for SSL, caching, and distribution.
-- No need to worry about scaling, networking, or servers.
-
-### WebAssembly
-
-The [C implementation](https://github.com/RoaringBitmap/CRoaring) of Roaring Bitmaps is compiled to WebAssembly. A [basic implementation](./wasm/) of essential C standard library functionality is implemented to make compilation possible.
+> ```
+> Reads = keyword_count * N_SHARDS
+> Write = 0
+> ```
 
 ## Usage
 
-### Get the CLI
-
-LLVM 9 or higher is required to use the CLI for building the worker.
-
-Precompiled binaries are available for x86-64:
-
-[Linux](https://wilsonl.in/edgesearch/bin/0.4.1-linux-x86_64) |
-[macOS](https://wilsonl.in/edgesearch/bin/0.4.1-macos-x86_64) |
-[Windows](https://wilsonl.in/edgesearch/bin/0.4.1-windows-x86_64.exe)
-
-<details>
-<summary><strong>Build CLI from source</strong></summary>
-
-[Rust](https://www.rust-lang.org) must be installed.
-
-```sh
-bash ./prebuild.sh
-cargo build --release
-```
-
-The CLI will be available at `./target/release/edgesearch`.
-</details>
-
-### Build the worker
-
-The data needs to be formatted into two files:
-
-- *Documents*: contents of all documents, delimited by NULL (ASCII 0), including at the end.
-- *Document terms*: terms for each corresponding document. Each term and document must end with NULL (ASCII 0).
-
-This format allows for simple reading and writing without libraries, parsers, or loading all the data into memory.
-Terms are separate from documents for easy switching between or testing of different documents-terms mappings.
-
-The relation between a document's terms and content is irrelevant to Edgesearch and terms do not necessarily have to be words from the document.
-
-A document must be a JSON serialised value, such as `"hello"`, `123`, or `{"prop1": 1, "prop2": {}}`.
-
-For example:
-
-|File|Contents|
-|---|---|
-|documents|`{"title":"Stupid Love","artist":"Lady Gaga","year":2020}` `\0` <br> `{"title":"Don't Start Now","artist":"Dua Lipa","year":2020}` `\0` <br> ...|
-|document-terms|`title_stupid` `\0` `title_love` `\0` `artist_lady` `\0` `artist_gaga` `\0` `year_2020` `\0` `\0` <br> `title_dont` `\0` `title_start` `\0` `title_now` `\0` `artist_dua` `\0` `artist_lipa` `\0` `year_2020` `\0` `\0` <br> ...|
-
-A folder needs to be provided for Edgesearch to write temporary and built code and data files. It's advised to provide a folder for the exclusive use of Edgesearch with no other contents.
-
-```bash
-edgesearch \
-  --data-store kv \
-  --documents documents \
-  --document-terms document-terms \
-  --maximum-query-results 20 \
-  --output-dir /path/to/edgesearch/build/output/dir/
-```
+TODO
 
 ### Deploy the worker
 
-[edgesearch-deploy-cloudflare](./deployer/cloudflare) handles deploying to Cloudflare.
-
-This will upload the worker script and associated WASM to Cloudflare Workers, and write every key to Cloudflare Workers KV:
-
 ```bash
-npx edgesearch-deploy-cloudflare \
-  --account-id CF_ACCOUNT_ID \
-  --account-email me@email.com \
-  --global-api-key CF_GLOBAL_API_KEY \
-  --name my-edgesearch \
-  --output-dir /path/to/edgesearch/build/output/dir/ \
-  --namespace CF_KV_NAMESPACE_ID \
-  --upload-data
+pnpm i
+pnpm run edgesearch env init
+# For managing wrangler.jsonc configs
+eval $(pnpm run edgesearch env set)
+pnpm run deploy
 ```
 
 ### Testing locally
@@ -171,7 +155,3 @@ let response = await client.search(query);
 query.setContinuation(response.continuation);
 response = await client.search(query);
 ```
-
-## Performance
-
-Searches that retrieve entries not cached at edge locations will be slow. To reduce cache misses, ensure that there is consistent traffic.

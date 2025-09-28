@@ -1,19 +1,25 @@
 use serde::{Deserialize, Serialize};
-use worker::kv::KvStore;
+use worker::{kv::KvStore, Env};
 
 use crate::{
     data::{
         document::shard_from_document_id, DataStoreError, DocumentRef, IndexName, KeywordRef,
-        KvEntry, KvPersistent, PREFIX_KEYWORD,
+        KvEntry, KvPersistent, DEFAULT_N_SHARDS, ENV_VAR_N_SHARDS, PREFIX_KEYWORD,
     },
     edge_debug,
 };
 
+pub fn get_n_shards(env: &worker::Env) -> u32 {
+    env.var(ENV_VAR_N_SHARDS)
+        .map_err(DataStoreError::Worker)
+        .map(|v| v.to_string().parse::<u32>())
+        .unwrap_or(Ok(DEFAULT_N_SHARDS))
+        .unwrap()
+}
+
 pub fn keyword_shard_kv_key(index: &str, keyword: &str, shard: u32) -> KeywordRef {
     return format!("{}:{}{}:{}", index, PREFIX_KEYWORD, keyword, shard) as KeywordRef;
 }
-
-static DEFAULT_NUM_SHARDS: u32 = 128;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeywordShardData {
@@ -72,11 +78,12 @@ impl KeywordShardData {
 
     pub async fn from_keyword(
         store: &KvStore,
+        env: &Env,
         index: &str,
         doc_id: &str,
         keyword: &str,
     ) -> Result<KeywordShardData, DataStoreError> {
-        let shard = shard_from_document_id(doc_id.to_string(), DEFAULT_NUM_SHARDS);
+        let shard = shard_from_document_id(doc_id.to_string(), get_n_shards(env));
         let shard_key = keyword_shard_kv_key(index, keyword, shard);
         edge_debug!(
             "KeywordShardData",

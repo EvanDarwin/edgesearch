@@ -1,4 +1,5 @@
 // Load before other modules which depend on macros in here.
+#[forbid(unsafe_code)]
 #[macro_use]
 mod util;
 mod data;
@@ -47,19 +48,19 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         )
         // Document endpoints
         .get_async(
-            "/:index/document/:id",
+            "/:index/doc/:id",
             with_auth!(http::documents::handle_get_document),
         )
         .post_async(
-            "/:index/document",
+            "/:index/doc",
             with_auth!(http::documents::handle_add_document),
         )
         .patch_async(
-            "/:index/document/:id",
+            "/:index/doc/:id",
             with_auth!(http::documents::handle_update_document),
         )
         .delete_async(
-            "/:index/document/:id",
+            "/:index/doc/:id",
             with_auth!(http::documents::handle_delete_document),
         )
         // Index endpoints (protected)

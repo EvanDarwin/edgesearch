@@ -46,7 +46,7 @@ impl Display for Expr {
 pub struct QueryLexer<'a> {
     ast: Option<Expr>,
     store: &'a Arc<KvStore>,
-    result: &'a mut HashMap<String, Vec<(String, f64)>>,
+    result: HashMap<String, Vec<(String, f64)>>,
 
     // <keyword, Vec<(doc_id, score)>>
     kw_cache: HashMap<String, Vec<DocumentScore<'static>>>,
@@ -54,12 +54,11 @@ pub struct QueryLexer<'a> {
 
 impl<'a> QueryLexer<'a> {
     pub fn new(query: &str, store: &'a Arc<KvStore>) -> QueryLexer<'a> {
-        let result = Box::leak(Box::new(HashMap::new()));
         let tokens = Self::tokenize(&query).unwrap();
         QueryLexer {
             ast: Self::parse(&tokens),
             store,
-            result,
+            result: HashMap::new(),
             kw_cache: HashMap::new(),
         }
     }
@@ -141,30 +140,25 @@ impl<'a> QueryLexer<'a> {
         index: &str,
         expr: Expr,
     ) -> HashMap<String, Vec<(String, f64)>> {
-        let mut current_result = self.result.clone();
         match expr {
             Expr::Not(inner) => {
-                self.result.clear();
                 let inner_matches = self.filter_documents_on_query(index, *inner);
-                let negated_result: HashMap<String, Vec<(String, f64)>> = current_result
+                let negated_result: HashMap<String, Vec<(String, f64)>> = self
+                    .result
                     .iter()
                     .filter(move |(doc_id, _)| !inner_matches.contains_key(doc_id.as_str()))
                     .map(|(doc_id, kws)| (doc_id.to_string(), kws.clone()))
                     .collect();
-
                 let match_count = negated_result.len();
-                let prev_count = current_result.len();
-                let new_count = negated_result.len();
+
                 edge_warn!(
                     "QueryLexer",
                     index,
-                    "NOT matches={}, prev_count={}, new_count={}, data={:?}",
+                    "NOT matches={}, data={:?}",
                     match_count,
-                    prev_count,
-                    new_count,
                     negated_result
                 );
-                *self.result = negated_result;
+                self.result = negated_result;
                 self.result.clone()
             }
             Expr::And(left, right) => {
@@ -174,49 +168,48 @@ impl<'a> QueryLexer<'a> {
                 let right_result = self.filter_documents_on_query(index, *right);
                 let right_count = right_result.len();
 
-                let mut and_result = left_result.clone();
-                Self::set_merge(&mut and_result, right_result.clone());
-                and_result = and_result
+                let and_result = left_result
                     .iter()
-                    .filter(move |(doc_id, _)| right_result.contains_key(*doc_id))
-                    .map(|(doc_id, kws)| (doc_id.to_string(), kws.clone()))
-                    .collect();
-
-                let prev_count = current_result.len();
-                Self::set_merge(&mut current_result, and_result);
-                let new_count = current_result.len();
+                    .filter(|(doc_id, _)| right_result.contains_key(*doc_id))
+                    .map(|(doc_id, kws)| {
+                        let merged_kws = {
+                            let mut kws = kws.clone();
+                            let right_kws = right_result.get(doc_id).unwrap();
+                            for (kw, score) in right_kws {
+                                if !kws.iter().any(|(k, _)| k == kw) {
+                                    kws.push((kw.clone(), *score));
+                                }
+                            }
+                            kws
+                        };
+                        (doc_id.to_string(), merged_kws)
+                    })
+                    .collect::<HashMap<String, Vec<(String, f64)>>>();
 
                 edge_warn!(
                     "QueryLexer",
                     index,
-                    "AND prev_count={}, new_count={}, left={}, right={}, data={:?}",
-                    prev_count,
-                    new_count,
+                    "AND left={}, right={}, data={:?}",
                     left_count,
                     right_count,
-                    current_result
+                    and_result
                 );
-                *self.result = current_result;
+                self.result = and_result;
                 self.result.clone()
             }
             Expr::Or(left, right) => {
-                let prev_count = current_result.len();
                 let mut left_branch = self.filter_documents_on_query(index, *left);
                 let right_branch = self.filter_documents_on_query(index, *right);
                 let match_count = left_branch.len() + right_branch.len();
                 Self::set_merge(&mut left_branch, right_branch);
-                Self::set_merge(&mut current_result, left_branch);
-                let new_count = current_result.len();
                 edge_warn!(
                     "QueryLexer",
                     index,
-                    "OR match={}, prev_count={}, new_count={} data={:?}",
+                    "OR matches={}, data={:?}",
                     match_count,
-                    prev_count,
-                    new_count,
-                    current_result
+                    left_branch
                 );
-                *self.result = current_result;
+                self.result = left_branch;
                 self.result.clone()
             }
             Expr::Word(word) => {
@@ -226,8 +219,7 @@ impl<'a> QueryLexer<'a> {
                     .iter()
                     .map(|(doc_id, score)| (doc_id.clone(), vec![(word.clone(), *score)]))
                     .collect();
-                Self::set_merge(&mut current_result, to_add);
-                *self.result = current_result;
+                self.result = to_add;
                 self.result.clone()
             }
         }
@@ -240,9 +232,9 @@ impl<'a> QueryLexer<'a> {
         T: PartialEq + Copy,
     {
         // Merge items that are in `from` into `into`
-        for (key, item) in from {
-            if into.contains_key(&key) {
-                let existing = into.get_mut(&key).unwrap();
+        for (doc_key, item) in from {
+            if into.contains_key(&doc_key) {
+                let existing = into.get_mut(&doc_key).unwrap();
                 for (keyword, score) in item {
                     if !existing.iter().any(|(k, _)| k == &keyword) {
                         existing.push((keyword.clone(), score));
@@ -250,7 +242,7 @@ impl<'a> QueryLexer<'a> {
                 }
                 continue;
             } else {
-                into.insert(key, item.clone());
+                into.insert(doc_key, item.clone());
             }
         }
     }
