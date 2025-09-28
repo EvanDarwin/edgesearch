@@ -1,18 +1,12 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use futures::future::join_all;
-use worker::{console_warn, kv::KvStore};
+use worker::kv::KvStore;
 
 use crate::{
-    data::{
-        document::Document, keyword::KeywordManager, keyword_shard::KeywordShardData,
-        DocumentScore, IndexName, KeywordScore, PREFIX_DOCUMENT,
-    },
-    edge_debug, edge_warn,
+    data::{keyword::KeywordManager, DocumentScore},
+    edge_warn,
+    http::search::SearchResultRow,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -51,8 +45,7 @@ impl Display for Expr {
 
 pub struct QueryLexer<'a> {
     ast: Option<Expr>,
-    store: Arc<KvStore>,
-
+    store: &'a Arc<KvStore>,
     result: &'a mut HashMap<String, Vec<(String, f64)>>,
 
     // <keyword, Vec<(doc_id, score)>>
@@ -60,7 +53,7 @@ pub struct QueryLexer<'a> {
 }
 
 impl<'a> QueryLexer<'a> {
-    pub fn new(query: &str, store: Arc<KvStore>) -> QueryLexer {
+    pub fn new(query: &str, store: &'a Arc<KvStore>) -> QueryLexer<'a> {
         let result = Box::leak(Box::new(HashMap::new()));
         let tokens = Self::tokenize(&query).unwrap();
         QueryLexer {
@@ -81,7 +74,7 @@ impl<'a> QueryLexer<'a> {
     }
 
     // Given a certain query express, search all keyword data, narrowing down document_ids
-    pub async fn query(&mut self, index: &str) -> HashMap<String, Vec<(String, f64)>> {
+    pub async fn query(&mut self, index: &str) -> Vec<SearchResultRow> {
         self.clear();
 
         // Preload keyword data
@@ -90,9 +83,34 @@ impl<'a> QueryLexer<'a> {
         let ast_str = self.ast_to_str();
         edge_warn!("QueryLexer", index, "AST={}", ast_str);
 
-        // Make sure to actually pass the reference here
         let ast = self.ast.clone().unwrap();
-        self.filter_documents_on_query(index, ast)
+        let matches = self.filter_documents_on_query(index, ast);
+
+        // Consolidate Vec<(keyword, score)> into a single score (f64), 1.0 being best rank
+        matches
+            .iter()
+            .map(move |(doc_id, kw_matches)| {
+                let total_matches = kw_matches.len() as u32;
+                let score: f64;
+                if total_matches == 1u32 {
+                    score = kw_matches[0].1;
+                } else {
+                    score = kw_matches.iter().map(|(_, score)| *score).sum::<f64>()
+                        / (total_matches as f64);
+                }
+                let keywords = kw_matches
+                    .iter()
+                    .map(|(kw, score)| (kw.clone(), *score))
+                    .collect();
+
+                SearchResultRow {
+                    doc_id: doc_id.to_string(),
+                    score,
+                    keywords,
+                    body: None,
+                }
+            })
+            .collect::<Vec<SearchResultRow>>()
     }
 
     async fn preload_keyword_data(&mut self, index: &str) -> () {
@@ -116,15 +134,6 @@ impl<'a> QueryLexer<'a> {
             self.kw_cache.insert(keyword.to_string(), doc_matches);
         }
     }
-    // New method to get all document IDs from the KV store
-    fn get_all_doc_ids(&self) -> HashSet<String> {
-        // Iterate over self.kv_cache and collect all unique document IDs
-        let mut all_doc_ids = HashSet::new();
-        for (_, scores) in self.kw_cache.iter() {
-            all_doc_ids.extend(scores.iter().map(|(doc_id, _)| doc_id.clone()));
-        }
-        all_doc_ids
-    }
 
     // HashMap<doc_id, Vec<(keyword, score)>>
     fn filter_documents_on_query(
@@ -133,76 +142,115 @@ impl<'a> QueryLexer<'a> {
         expr: Expr,
     ) -> HashMap<String, Vec<(String, f64)>> {
         let mut current_result = self.result.clone();
-
         match expr {
             Expr::Not(inner) => {
                 self.result.clear();
                 let inner_matches = self.filter_documents_on_query(index, *inner);
-                let negated_result = current_result
+                let negated_result: HashMap<String, Vec<(String, f64)>> = current_result
                     .iter()
-                    .filter(|(doc_id, kws)| !inner_matches.contains_key(*doc_id))
-                    .map(|(doc_id, kws)| (doc_id.clone(), kws.clone()))
+                    .filter(move |(doc_id, _)| !inner_matches.contains_key(doc_id.as_str()))
+                    .map(|(doc_id, kws)| (doc_id.to_string(), kws.clone()))
                     .collect();
+
+                let match_count = negated_result.len();
+                let prev_count = current_result.len();
+                let new_count = negated_result.len();
+                edge_warn!(
+                    "QueryLexer",
+                    index,
+                    "NOT matches={}, prev_count={}, new_count={}, data={:?}",
+                    match_count,
+                    prev_count,
+                    new_count,
+                    negated_result
+                );
                 *self.result = negated_result;
                 self.result.clone()
             }
-
             Expr::And(left, right) => {
                 let left_result = self.filter_documents_on_query(index, *left);
-                let right_result = self.filter_documents_on_query(index, *right);
+                let left_count = left_result.len();
 
-                left_result
-                    .into_iter()
-                    .filter(|(doc_id, _)| right_result.contains_key(doc_id))
-                    .map(|(doc_id, kws)| (doc_id, kws.clone()))
-                    .collect()
+                let right_result = self.filter_documents_on_query(index, *right);
+                let right_count = right_result.len();
+
+                let mut and_result = left_result.clone();
+                Self::set_merge(&mut and_result, right_result.clone());
+                and_result = and_result
+                    .iter()
+                    .filter(move |(doc_id, _)| right_result.contains_key(*doc_id))
+                    .map(|(doc_id, kws)| (doc_id.to_string(), kws.clone()))
+                    .collect();
+
+                let prev_count = current_result.len();
+                Self::set_merge(&mut current_result, and_result);
+                let new_count = current_result.len();
+
+                edge_warn!(
+                    "QueryLexer",
+                    index,
+                    "AND prev_count={}, new_count={}, left={}, right={}, data={:?}",
+                    prev_count,
+                    new_count,
+                    left_count,
+                    right_count,
+                    current_result
+                );
+                *self.result = current_result;
+                self.result.clone()
             }
             Expr::Or(left, right) => {
-                let mut or_branch = self.filter_documents_on_query(index, *left);
+                let prev_count = current_result.len();
+                let mut left_branch = self.filter_documents_on_query(index, *left);
                 let right_branch = self.filter_documents_on_query(index, *right);
-                Self::diff_sets(&mut or_branch, right_branch, true);
-                or_branch
+                let match_count = left_branch.len() + right_branch.len();
+                Self::set_merge(&mut left_branch, right_branch);
+                Self::set_merge(&mut current_result, left_branch);
+                let new_count = current_result.len();
+                edge_warn!(
+                    "QueryLexer",
+                    index,
+                    "OR match={}, prev_count={}, new_count={} data={:?}",
+                    match_count,
+                    prev_count,
+                    new_count,
+                    current_result
+                );
+                *self.result = current_result;
+                self.result.clone()
             }
             Expr::Word(word) => {
                 // Vec<(doc_id, score)>
                 let kw_data = self.kw_cache.get(&word).unwrap();
-
                 let to_add: HashMap<String, Vec<(String, f64)>> = kw_data
                     .iter()
                     .map(|(doc_id, score)| (doc_id.clone(), vec![(word.clone(), *score)]))
                     .collect();
-                Self::diff_sets(&mut current_result, to_add, true);
-
-                *self.result = current_result.clone();
-                current_result
+                Self::set_merge(&mut current_result, to_add);
+                *self.result = current_result;
+                self.result.clone()
             }
         }
     }
 
-    fn diff_sets<T>(
+    fn set_merge<T>(
         into: &mut HashMap<String, Vec<(String, T)>>,
         from: HashMap<String, Vec<(String, T)>>,
-        keep: bool,
     ) where
         T: PartialEq + Copy,
     {
-        if !keep {
-            // Remove items that are in `from` from `into`
-            into.retain(|doc_id, _| !from.contains_key(doc_id));
-        } else {
-            // Merge items that are in `from` into `into`
-            for item in from {
-                if into.contains_key(&item.0) {
-                    let existing = into.get_mut(&item.0).unwrap();
-                    for kw in item.1 {
-                        if !existing.iter().any(|(k, _)| k == &kw.0) {
-                            existing.push(kw.clone());
-                        }
+        // Merge items that are in `from` into `into`
+        for (key, item) in from {
+            if into.contains_key(&key) {
+                let existing = into.get_mut(&key).unwrap();
+                for (keyword, score) in item {
+                    if !existing.iter().any(|(k, _)| k == &keyword) {
+                        existing.push((keyword.clone(), score));
                     }
-                    continue;
-                } else {
-                    into.insert(item.0, item.1.clone());
                 }
+                continue;
+            } else {
+                into.insert(key, item.clone());
             }
         }
     }

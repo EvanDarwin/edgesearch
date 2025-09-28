@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::data::keyword_shard::KeywordShardData;
 use crate::data::DocumentRef;
@@ -18,7 +19,7 @@ use yake_rust::{Config, StopWords};
 
 use crate::data::{DataStoreError, KvEntry, KvPersistent};
 
-fn document_kv_key(index: &str, uuid: &DocumentRef) -> DocumentRef {
+pub fn document_kv_key(index: &str, uuid: &DocumentRef) -> DocumentRef {
     format!("{}:{}{}", &index, PREFIX_DOCUMENT, &uuid)
 }
 
@@ -73,7 +74,6 @@ static STOPWORDS_CACHE: Lazy<std::collections::HashMap<String, StopWords>> = Laz
     let mut map = std::collections::HashMap::new();
     // Iterate over certain IsoCode639_1 variants and pre-load their stopwords
     let iso_codes = vec![IsoCode639_1::EN];
-
     for code in iso_codes {
         let lang_str = code.to_string();
         map.insert(
@@ -81,7 +81,6 @@ static STOPWORDS_CACHE: Lazy<std::collections::HashMap<String, StopWords>> = Laz
             StopWords::predefined(&lang_str.as_str()).unwrap(),
         );
     }
-
     map
 });
 
@@ -262,5 +261,18 @@ impl Document {
         join_all(removal_futures).await;
         join_all(addition_futures).await;
         Ok(self.revision)
+    }
+
+    pub async fn many_from_remote(
+        keys: Vec<String>,
+        store: Arc<KvStore>,
+    ) -> Result<Vec<Document>, DataStoreError> {
+        let read_futures = keys.iter().map(|key| Document::read(key, &store));
+        let documents: Vec<Document> = join_all(read_futures)
+            .await
+            .into_iter()
+            .filter_map(|doc_opt| doc_opt.ok())
+            .collect();
+        Ok(documents)
     }
 }

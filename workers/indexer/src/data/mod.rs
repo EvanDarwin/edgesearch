@@ -7,8 +7,6 @@ pub type DocumentRef = String;
 pub type IndexName = String;
 
 pub type DocumentScore<'a> = (String, f64);
-pub type KeywordScore<'a> = (String, f64);
-pub type DocumentScores<'a> = Vec<DocumentScore<'a>>;
 
 pub static PREFIX_INDEX: &str = "index:";
 pub static PREFIX_DOCUMENT: &str = "document:";
