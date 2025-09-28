@@ -7,4 +7,6 @@ dist/
 build/
 target/
 
+# Wrangler / other
+wrangler*.json[c]
 .DS_Store
