@@ -8,5 +8,6 @@ catalog:
 onlyBuiltDependencies:
   - core-js
   - esbuild
+  - nx
   - sharp
   - workerd

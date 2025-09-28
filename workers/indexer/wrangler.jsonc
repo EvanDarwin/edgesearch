@@ -9,7 +9,6 @@
 		"mode": "smart"
 	},
 	"kv_namespaces": [
-		// Replace this ID with your own KV namespace ID
 		{
 			"binding": "INDEX",
 			"id": "1af0993fccaa47b0b720963218d3d7bf"
@@ -21,13 +20,5 @@
 	},
 	"build": {
 		"command": "npm run build"
-	},
-	"env": {
-		"dev": {
-			// Add your dev bindings here
-		},
-		"production": {
-			// Add your production bindings here
-		}
 	}
 }

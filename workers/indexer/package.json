@@ -3,6 +3,7 @@
     "private": true,
     "license": "MIT",
     "scripts": {
-        "build": "cargo install -q worker-build && worker-build --release"
+        "build": "cargo install -q worker-build && worker-build --release",
+        "deploy": "wrangler -c $ES_WRANGLER_CONFIG deploy"
     }
 }

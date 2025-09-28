@@ -1,29 +1,36 @@
 {
-    "name": "@evandarwin/edgesearch",
-    "license": "MIT",
-    "version": "0.1.2",
-    "private": true,
-    "type": "module",
-    "authors": [
-        {
-            "name": "Wilson Lin",
-            "email": "@wzlin/jobs",
-            "url": "https://github.com/wilsonzlin"
-        },
-        {
-            "name": "Evan Darwin",
-            "url": "https://github.com/EvanDarwin"
-        }
-    ],
-    "scripts": {
-        "clean": "rimraf dist/",
-        "build":"pnpm run -r build",
-        "lint": "biome check . --fix"
+  "name": "@evandarwin/edgesearch",
+  "license": "MIT",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "authors": [
+    {
+      "name": "Wilson Lin",
+      "email": "@wzlin/jobs",
+      "url": "https://github.com/wilsonzlin"
     },
-    "devDependencies": {
-        "biome": "^0.3.3",
-        "typescript": "catalog:",
-        "wrangler": "^4.40.1"
-    },
-    "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67"
+    {
+      "name": "Evan Darwin",
+      "url": "https://github.com/EvanDarwin"
+    }
+  ],
+  "scripts": {
+    "clean": "rimraf dist/",
+    "build": "pnpm run -r build",
+    "deploy": "lerna run --stream --parallel deploy",
+    "lint": "biome check . --fix"
+  },
+  "bin": {
+    "edgesearch": "bin/edgesearch.js"
+  },
+  "devDependencies": {
+    "biome": "^0.3.3",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.1",
+    "lerna": "^8.2.1",
+    "typescript": "catalog:",
+    "wrangler": "^4.40.1"
+  },
+  "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67"
 }
