@@ -168,7 +168,7 @@ EdgeSearch is directly configured through Cloudflare Worker environment values. 
 | `YAKE_NGRAMS` | 3 | The maximum number of words that can be in a keyword. |
 | `YAKE_MINIMUM_CHARS` | 2 | The minimum number of characters in a keyword. |
 
-## `N_SHARDS`
+### `N_SHARDS`
 > Due to the latency required for maintaining synchronicity in a system with datacenters all over the globe, currently Cloudflare only promises KV data is written and distributed after ~1sec.
 >
 > I'm still waiting for the Sync KV feature to land in `workers-rs`, and then writes will become much more reliable.
@@ -179,3 +179,8 @@ For a better understanding of how to optimize `N_SHARDS`:
   * `N_SHARDS = 2` - More data loss on heavy writes, much faster reads, accepts longer queries
   * `N_SHARDS = 48` - More balanced, more KV reads, reduced chance of data loss
   * `N_SHARDS = 128` - Excessive, limits search keywords, write conflicts if you're unlucky
+
+
+# License
+
+This project is licensed under the [MIT license](./LICENSE).
