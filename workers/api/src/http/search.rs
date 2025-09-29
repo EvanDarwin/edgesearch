@@ -2,7 +2,7 @@ use worker::{Request, Response, Result, RouteContext};
 
 use crate::{
     data::document::{document_kv_key, Document},
-    lexer::QueryLexer,
+    lexer::lexer::QueryLexer,
     util::kv::get_kv_data_store,
 };
 
@@ -15,9 +15,20 @@ pub async fn handle_search(req: Request, ctx: RouteContext<()>) -> Result<Respon
     if let Some(index) = ctx.param("index") {
         if let Ok(query) = req.query::<SearchQuery>() {
             let store = get_kv_data_store(&ctx);
-            let mut lexer = QueryLexer::new(query.query.as_str(), &store);
-            let documents = lexer.query(index).await;
+            let lexer = QueryLexer::from_str(query.query.as_str(), &store);
+            if !lexer.is_ok() {
+                return Response::error(
+                    crate::http::ErrorResponse {
+                        error: "Failed to parse query".into(),
+                    },
+                    400,
+                );
+            }
 
+            // Execute the search query
+            let documents = lexer.unwrap().query(index).await;
+
+            // If full document bodies are requested, fetch them
             if query.full.unwrap_or(false) {
                 let document_bodies = Document::many_from_remote(
                     documents

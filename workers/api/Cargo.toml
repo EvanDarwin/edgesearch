@@ -1,5 +1,5 @@
 [package]
-name = "edgesearch"
+name = "edgesearch-api"
 description = "Serverless full-text search and document store with Cloudflare Workers and WASM"
 license = "MIT"
 readme = "README.md"

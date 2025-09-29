@@ -1,74 +1,101 @@
-# Edgesearch
+# EdgeSearch
 
-A document store with full-text search built to run on Cloudflare Workers and KV, with [workers-rs](https://github.com/cloudflare/workers-rs) and WebAssembly.
+### A document store with complex full-text keyword search for Cloudflare Workers and KV 
+
+> Ever wanted to do a complex keyword search on a large volume of documents without spending $400/mo for Elastic, or crying over PostgreSQL "full-text"?
+
+> Just need a document store that will process as many uploaded documents as you have available ports on your computer, that will keep them forever?
+
+> Broke boy with no money for something fancier?
+
+These are the challenges EdgeSearch aims to solve. Deploy it to your Cloudflare Workers account with a few commands, and start uploading whatever documents you want (24MB limit). 
+
+When you upload a document, EdgeSearch will automtically identify keywords in your document, index and score those keywords! As soon as KV writes the value globally, the document is instantly available in any future search queries.
 
 ## Features
-- No servers or databases to create, manage, or scale.
-- Simple API key authentication (just set `API_KEY` in your Worker env)
-- English keyword + language detection on document submission (more coming soon)
-- Organize documents and keywords into unique indexes
-- Simple query language, example: `("word" || "wordle") && ~"pop"`
-- Look up all documents for an individual keyword (`/:index/keyword/:keyword`)
-- Balances KV storage usage for fast search + document store.
-- Runs fast [WASM](https://webassembly.org/) code at Cloudflare edge PoPs for low-latency requests.
-- Designed to scale (Cloudflare KV has no limit)
-- Options to balance between high-write scenarios and high-read scenarios. 
-- [Hash table](https://en.wikipedia.org/wiki/Hash_table) sharding for minimizing data loss over slow KV replication
+- [Hash table](https://en.wikipedia.org/wiki/Hash_table) keyword sharding for minimizing data loss over slow KV replication
+- [Lingua](https://docs.rs/lingua/latest/lingua/index.html) automatic language detection on documents
+  - EN, can be recompiled to support other languages
+  - Limited to EN by default to keep under the 2MB free limit
+- Runs entirely on Cloudflare Workers + KV
+  - Cloudflare-scale reading AND writing
+- Easily segment documents and keywords into named indexes
+- Simple expressive query language: `~("pop" && "crave") || "tiktok"`
+- Near-instant single keyword queries `/:index/keyword/:keyword`
+- Near-instant document queries: `/:index/doc/:id`
+- Supports files up of to ~24MB
 
 ## Bonus Features
 - Will definitely burn through your entire Cloudflare KV free plan in a day
-- There is technically no limit to how many 2MB documents KV will store
-- Searching is really fast
-- Questionably written Rust (room for improvement)
+- There is technically no limit to how many 25MB documents KV will store (and how much you can pay them)
+- Searching even complex queries happens very quickly
+- Expensive queries do not impact the performance of other queries
 
-## Drawbacks
+## KV Usage
 
-> ### High-volume Writing
->
-> Due to the latency required for maintaining synchronicity in a system with datacenters all over the globe, currently Cloudflare only promises KV data is written and distributed after ~1sec.
->
-> EdgeSearch attempts to solve this solution with a simple hash shard based on the document's
-> ID. We provide a configuration value via the `N_SHARDS` worker environment variable.
-> 
-> For a better understanding of how to optimize `N_SHARDS`:
->   * `N_SHARDS=2`
->     - An extremely conservative number for sharding
->     - If more than one write to a keyword file happens at a time, data may be overwritten
->     - Maximum of 2 KV entries for a single keyword
->   * `N_SHARDS=48`
->     - More reasonable
->     - Much reduced opportunity for overwriting data when there are more shards
->     - Maximum of 48 KV entries for a single keyword
->   * `N_SHARDS=512`
->     - Optimized for writing
->     - RIP your KV limits
->     - If you get a conflict you're unlucky :(
->
-> 
-> ### KV Usage
->
-> As shown above, the sharding number you choose significantly affects the size of your actual KV storage used.
-> By default, the application default is `48`, which I think is a reasonable balance to start with.
+The number of KV read/write commands that will be executed depends on a number of factors, most significantly the `N_SHARDS` configuration option.
 
-## How it works
+We think we've chosen a reasonable default of `48` for `N_SHARDS`, which serves to prevent data loss during times of heavy writes.
 
-Deploy the Rust WASM worker to your Cloudflare account and begin adding documents, searching, and querying via JSON over HTTPS.
+> #### Possible data loss during heavy writes
+> KV writes are only guaranteed after ~1 sec since it is a distributed system, so we use sharding to split up keyword files. I am waiting for the Sync KV implementation for `workers-rs` to land, which should resolve this issue and `N_SHARDS` can be lowered.
 
-### Create an Index
+Here's the following KV performance you can expect for each operation.
+All commands execute at most one `list` command per invocation.
 
-First, create a new index called `default` (or whichever index name you wish) that will store your 
-document and keyword data:
+| Op | Performance |
+|----|-------------|
+| Get Keyword | `O(N_SHARDS)` |
+| Write Document | `O(1 + kw_count)` |
+| Update Document | `O(1 + new_keywords + old_keywords)`
+| Search | `O(kw_count * N_SHARDS)`
+
+
+As shown above, the `N_SHARDS` you choose significantly affects both the number of KV reads and writes you will make, but prevents data loss when inserting many documents at once.
+
+# Deploy EdgeSearch
 
 ```bash
-curl -X POST https://edgesearch.yourname.workers.dev/default
+pnpm i
+# Create a new wrangler configuration
+pnpm run edgesearch env init
+# For managing wrangler.jsonc configs
+eval $(pnpm run edgesearch env set)
+pnpm run deploy
 ```
 
-### Submit a Document
+> ## Security
+> I strongly recommend setting at least `API_KEY` in your `wrangler.jsonc` configuration, otherwise anyone can read your documents!
 
-Submitting a document will automatically run language detection and keyword processing.  You can upload a file of any byte data you want. Right now it will throw YAKE at it and see what comes out. What you put in it is up to you.
+# API Usage
 
-The document data will be stored indefinitely and is acessible at the `document_id` that is returned 
-during creation. 
+You can interact with EdgeSearch via its JSON API. First, identify your Cloudflare workers API endpoint, it should be something in the form of `edgesearch-api.username.workers.dev`.
+
+We've included the `X-API-Key` header in the examples here for convenience, since the commands will still work without authentication enabled.
+
+## Create an Index
+
+First, let's create a new index called `sample` to store document and keyword data:
+
+```bash
+curl -X POST -H "X-API-Key: " https://edgesearch.username.workers.dev/sample
+```
+
+## Submit a Document
+
+Submitting a document will automatically run language detection and keyword processing.  You can upload a file of any byte data you want. Keyword data is derived from the YAKE algorithm.
+
+Documents stored are stored forever, and immediately accessible at the `document_id` returned. Now, let's index a new document on the `sample` index we just created.
+
+```bash
+curl -X POST -H "X-API-Key: " -d 'document body goes here' \
+  https://edgesearch.username.workers.dev/sample/doc
+```
+
+Will return:
+```json
+{"id":"ysseRtTLpmEBsVEd","rev":1,"lang":"EN","body":"document body goes here","keywords":[["document body",0.9505961599793439],["document",0.8416830712200131],["body",0.7026344174397854]]}
+```
 
 > Nice Features To Do:
 >  - [ ] Improved JSON processing
@@ -76,82 +103,79 @@ during creation.
 >  - [ ] Improved Binary processing
 >
 
-Now, let's index a new document on the `default` index we just created.
+## Retrieve a Document
 
 ```bash
-curl -X POST -d 'lorem ipsum' https://edgesearch.yourname.workers.dev/default/doc
+curl -X GET -H "X-API-Key: " \
+  https://edgesearch.username.workers.dev/sample/doc/ysseRtTLpmEBsVEd
 ```
 
-### Searching
+Fetching a document returns the same result as creating a document:
+```json
+{"id":"ysseRtTLpmEBsVEd","rev":1,"lang":"EN","body":"document body goes here","keywords":[["document body",0.9505961599793439],["document",0.8416830712200131],["body",0.7026344174397854]]}
+```
 
-Search terms have an associated mode. There are three modes that match documents in different ways:
+## Searching
 
-|Mode|Document match condition|
-|---|---|
-|Require|Has all terms with this mode.|
-|Contain|Has at least one term with this mode.|
-|Exclude|Has none of the terms with this mode.|
+Queries can be complex, and negation works properly.
 
+> The number of keywords in your search scales the number of KV reads that will occur.
+> Searching a keyword requires reading all of the available shards for each keyword.
 
-#### Search Query Syntax
+Some examples:
+
 ```rust
-("a" && "b" && "c") && ("e" || "f" || "g") && ~("x" || "y" || "z")
+// Find documents with "a" AND "b" then exclude docs containing "c"
+"a" && "b" && ~"c"
 ```
 
-Including any keyword will trigger a lookup for all keyword shards, allowing us to collect the full list of related documents and always be up to date.
+```rust
+// Find documents with "ocean" and exclude any with "storm", "weather", or "tropical"
+~("storm" || "weather" || "tropical") && "ocean"
+```
 
-> ```
-> Reads = keyword_count * N_SHARDS
-> Write = 0
-> ```
+### Limitations
 
-## Usage
+You cannot do a simple negation of the entire document set. For example, the query `~"word"` will return no document results. You must first select documents with a positive keyword search before attempting to exclude them.
 
-TODO
-
-### Deploy the worker
+## Delete a document
+Deletes a document from the KV store, and update any related keyword indexes.
 
 ```bash
-pnpm i
-pnpm run edgesearch env init
-# For managing wrangler.jsonc configs
-eval $(pnpm run edgesearch env set)
-pnpm run deploy
+curl -X DELETE -H 'X-API-Key: ' \
+  https://edgesearch.username.workers.dev/sample/doc/ysseRtTLpmEBsVEd
 ```
 
-### Testing locally
+The document will be deleted from the KV store, and any associated keyword data will be updated so the document no longer appears in search results.
 
-[edgesearch-test-server](./tester) loads a built worker to run locally.
-
-This will create a local server on port 8080:
+## List Indexes
+Display a list of all available indexes in the KV store.
 
 ```bash
-npx edgesearch-test-server \
-  --output-dir /path/to/edgesearch/build/output/dir/ \
-  --port 8080
+curl -X GET -H 'X-API-Key: ' \
+  https://edgesearch.username.workers.dev/indexes
 ```
 
-The client can be used with a local test server; provide the origin (e.g. `http://localhost:8080`) to the constructor (see below).
 
-### Calling the API
+# Configuration
 
-A JavaScript [client](./client/) for the browser and Node.js is available for using a deployed Edgesearch worker:
+EdgeSearch is directly configured through Cloudflare Worker environment values. The following configuration values currently exist:
 
-```typescript
-import * as Edgesearch from 'edgesearch-client';
+| Variable | Default | Comment |
+|---|---|---|
+| `N_SHARDS` | 48 | The maximum number of keyword data shards that can exist. |
+| `API_KEY` | _None_ | Set this to any value to require the `X-API-Key` header during requests. |
+| `YAKE_NGRAMS` | 3 | The maximum number of words that can be in a keyword. |
+| `YAKE_MINIMUM_CHARS` | 2 | The minimum number of characters in a keyword. |
 
-type Document = {
-  title: string;
-  artist: string;
-  year: number;
-};
+## `N_SHARDS`
+> Due to the latency required for maintaining synchronicity in a system with datacenters all over the globe, currently Cloudflare only promises KV data is written and distributed after ~1sec.
+>
+> I'm still waiting for the Sync KV feature to land in `workers-rs`, and then writes will become much more reliable.
 
-const client = new Edgesearch.Client<Document>('https://my-edgesearch.me.workers.dev');
-const query = new Edgesearch.Query();
-query.add(Edgesearch.Mode.REQUIRE, 'world');
-query.add(Edgesearch.Mode.CONTAIN, 'hello', 'welcome', 'greetings');
-query.add(Edgesearch.Mode.EXCLUDE, 'bye', 'goodbye');
-let response = await client.search(query);
-query.setContinuation(response.continuation);
-response = await client.search(query);
-```
+EdgeSearch attempts to solve this solution with a simple hash in the form `hash(doc_id) % N_SHARDS`.
+
+For a better understanding of how to optimize `N_SHARDS`:
+  * `N_SHARDS = 2` - More data loss on heavy writes, much faster reads, accepts longer queries
+  * `N_SHARDS = 48` - More balanced, more KV reads, reduced chance of data loss
+  * `N_SHARDS = 128` - Excessive, limits search keywords, write conflicts if you're unlucky

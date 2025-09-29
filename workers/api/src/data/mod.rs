@@ -15,6 +15,8 @@ pub static PREFIX_KEYWORD: &str = "kw:";
 pub const INDEX_VERSION_V1: u8 = 1u8;
 
 pub static ENV_VAR_N_SHARDS: &str = "N_SHARDS";
+pub static ENV_VAR_API_KEY: &str = "API_KEY";
+
 pub static DEFAULT_N_SHARDS: u32 = 48;
 pub static DEFAULT_YAKE_NGRAMS: u8 = 3;
 pub static DEFAULT_YAKE_MIN_CHARS: u8 = 2;

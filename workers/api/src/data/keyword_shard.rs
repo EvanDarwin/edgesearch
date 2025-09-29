@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
-use worker::{kv::KvStore, Env};
+use worker::{console_debug, kv::KvStore, Env};
 
 use crate::{
     data::{
         document::shard_from_document_id, DataStoreError, DocumentRef, IndexName, KeywordRef,
         KvEntry, KvPersistent, DEFAULT_N_SHARDS, ENV_VAR_N_SHARDS, PREFIX_KEYWORD,
     },
-    edge_debug,
+    edge_log,
 };
 
 pub fn get_n_shards(env: &worker::Env) -> u32 {
@@ -85,7 +85,8 @@ impl KeywordShardData {
     ) -> Result<KeywordShardData, DataStoreError> {
         let shard = shard_from_document_id(doc_id.to_string(), get_n_shards(env));
         let shard_key = keyword_shard_kv_key(index, keyword, shard);
-        edge_debug!(
+        edge_log!(
+            console_debug,
             "KeywordShardData",
             index,
             "KeywordShardData::from_keyword({}, {}) kv={}",
@@ -96,7 +97,8 @@ impl KeywordShardData {
 
         let found_shard = Self::read(&keyword_shard_kv_key(&index, &keyword, shard), &store).await;
         if let Ok(shard_data) = found_shard {
-            edge_debug!(
+            edge_log!(
+                console_debug,
                 "KeywordShardData",
                 index,
                 "loaded existing shard data for keyword '{}' shard {}",
@@ -105,7 +107,8 @@ impl KeywordShardData {
             );
             Ok(shard_data)
         } else {
-            edge_debug!(
+            edge_log!(
+                console_debug,
                 "KeywordShardData",
                 index,
                 "creating new shard data for keyword '{}' shard {}",

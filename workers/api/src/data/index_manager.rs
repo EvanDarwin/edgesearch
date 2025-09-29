@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use worker::kv::KvStore;
+use worker::{console_debug, console_log, console_warn, kv::KvStore};
 
 use crate::{
     data::{
         index::{get_index_key, IndexDocument},
         DataStoreError, INDEX_VERSION_V1, PREFIX_DOCUMENT, PREFIX_INDEX,
     },
-    edge_debug, edge_log, edge_warn,
+    edge_log,
 };
 
 pub struct IndexManager<'a> {
@@ -35,7 +35,13 @@ impl<'a> IndexManager<'a> {
             .collect();
 
         let index_count = indexes.len();
-        edge_debug!("IndexManager", "", "found {} indexes", index_count);
+        edge_log!(
+            console_debug,
+            "IndexManager",
+            "",
+            "found {} indexes",
+            index_count
+        );
         Ok(indexes)
     }
 
@@ -49,11 +55,11 @@ impl<'a> IndexManager<'a> {
             .map_err(DataStoreError::Kv)?;
 
         if document.is_none() {
-            edge_warn!("IndexManager", index, "index not found in KV");
+            edge_log!(console_warn, "IndexManager", index, "index not found in KV");
             return Err(DataStoreError::NotFound(index.to_string()));
         }
 
-        edge_debug!("IndexManager", index, "load from KV");
+        edge_log!(console_debug, "IndexManager", index, "load from KV");
         Ok(document.unwrap())
     }
 
@@ -62,7 +68,8 @@ impl<'a> IndexManager<'a> {
         let existing_version = self.read_index(index_name).await;
         // Return the existing version if it exists NOT AN ERROR
         if existing_version.is_ok() {
-            edge_warn!(
+            edge_log!(
+                console_warn,
                 "IndexManager",
                 index_name,
                 "index already exists, skipping creation"
@@ -87,14 +94,14 @@ impl<'a> IndexManager<'a> {
             .await
             .map_err(DataStoreError::Kv)?;
 
-        edge_log!("IndexManager", index_name, "created index");
+        edge_log!(console_log, "IndexManager", index_name, "created index");
         Ok(index_doc.to_owned())
     }
 
     pub async fn delete_index(&self, index_name: &str) -> Result<(), DataStoreError> {
         let key = get_index_key(index_name);
         self.store.delete(&key).await.map_err(DataStoreError::Kv)?;
-        edge_log!("IndexManager", index_name, "deleted index");
+        edge_log!(console_log, "IndexManager", index_name, "deleted index");
         Ok(())
     }
 

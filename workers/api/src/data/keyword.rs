@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use futures::future::join_all;
-use worker::kv::KvStore;
+use worker::{console_debug, console_log, console_warn, kv::KvStore};
 
 use crate::{
     data::{
         keyword_shard::KeywordShardData, DataStoreError, IndexName, KvPersistent, PREFIX_KEYWORD,
     },
-    edge_debug, edge_log, edge_warn,
+    edge_log,
     util::http::url_decode,
 };
 
@@ -36,7 +36,8 @@ impl<'a> KeywordManager<'a> {
             .map_err(DataStoreError::Kv)?;
 
         let shard_count = keyword_shards.keys.len();
-        edge_debug!(
+        edge_log!(
+            console_debug,
             "KeywordManager",
             &self.index,
             "keyword shard merge initiated  keyword={}, shard_count={}",
@@ -64,7 +65,8 @@ impl<'a> KeywordManager<'a> {
                     });
                 }
                 Err(err) => {
-                    edge_warn!(
+                    edge_log!(
+                        console_warn,
                         "KeywordManager",
                         &self.index,
                         "Failed to read keyword shard data for key {}: {:?}",
@@ -81,6 +83,7 @@ impl<'a> KeywordManager<'a> {
 
         let total_doc_count = sorted.len();
         edge_log!(
+            console_log,
             "KeywordManager",
             &self.index,
             "keyword shard merge completed keyword={}, merged_docs={}",

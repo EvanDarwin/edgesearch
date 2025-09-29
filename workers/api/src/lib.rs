@@ -9,12 +9,13 @@ pub mod lexer;
 
 use worker::{event, Context, Env, Request, Response, Result, RouteContext, Router};
 
-use crate::data::DataStoreError;
+use crate::data::{DataStoreError, ENV_VAR_API_KEY};
 
+/// Compare a request's API key header to the API_KEY env var, if one exists.
 fn check_auth(req: &Request, ctx: &RouteContext<()>) -> bool {
     // Check if API_KEY env var is set, if not ignore
     ctx.env
-        .var("API_KEY")
+        .var(ENV_VAR_API_KEY)
         .map_err(DataStoreError::Worker)
         .map(|v| {
             let api_key = req.headers().get("X-API-Key").unwrap_or(None);
@@ -75,50 +76,9 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
 #[macro_export]
 macro_rules! edge_log {
-    ($module:expr, $index:expr, $msg:expr $(, $args:tt)* ) => {
-        #[cfg(not(target_arch = "wasm32"))]
-        worker::console_log!(
-            "[{}][{}] {}",
-            $module,
-            $index,
-            format!($msg $(,$args)*)
-        );
-    }
-}
-
-#[macro_export]
-macro_rules! edge_warn {
-    ($module:expr, $index:expr, $msg:expr $(, $args:tt)* ) => {
-        worker::console_warn!(
-            "[{}][{}] {}",
-            $module,
-            $index,
-            format!($msg $(,$args)*)
-        );
-    }
-}
-
-#[macro_export]
-macro_rules! edge_error {
-    ($module:expr, $index:expr, $msg:expr $(, $args:tt)* ) => {
-        worker::console_error!(
-            "[{}][{}] {}",
-            $module,
-            $index,
-            format!($msg $(,$args)*)
-        );
-    }
-}
-
-#[macro_export]
-macro_rules! edge_debug {
-    ($module:expr, $index:expr, $msg:expr $(, $args:tt)* ) => {
-        #[cfg(not(target_arch = "wasm32"))]
-        worker::console_debug!(
-            "[{}][{}] {}",
-            $module,
-            $index,
-            format!($msg $(,$args)*)
+    ($level:ident, $module:expr, $index:expr, $msg:expr $(, $args:tt)* ) => {
+        worker::$level!(
+            "[{}][{}] {}", $module, $index, format!($msg $(, $args)*)
         );
     }
 }

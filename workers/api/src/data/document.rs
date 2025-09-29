@@ -7,8 +7,7 @@ use crate::data::IndexName;
 use crate::data::DEFAULT_YAKE_MIN_CHARS;
 use crate::data::DEFAULT_YAKE_NGRAMS;
 use crate::data::PREFIX_DOCUMENT;
-use crate::edge_debug;
-use crate::edge_warn;
+use crate::edge_log;
 use futures::future::join_all;
 use lingua::IsoCode639_1;
 use nanoid::nanoid;
@@ -16,6 +15,8 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sha2::Sha256;
+use worker::console_debug;
+use worker::console_warn;
 use worker::kv::KvStore;
 use worker::Env;
 use yake_rust::{Config, StopWords};
@@ -163,7 +164,8 @@ impl Document {
         let stopwords = if let Some(cached) = STOPWORDS_CACHE.get(&lang_str) {
             cached.clone()
         } else {
-            edge_warn!(
+            edge_log!(
+                console_warn,
                 "Document",
                 &self.index,
                 "No cached stopwords for language {}",
@@ -215,7 +217,8 @@ impl Document {
                             .ok()
                             .unwrap();
 
-                    edge_debug!(
+                    edge_log!(
+                        console_debug,
                         "Documents",
                         index,
                         "Removing document {} from keyword shard for keyword '{}'",
@@ -226,7 +229,8 @@ impl Document {
                         .remove_document(store, doc_id)
                         .await
                         .unwrap_or_else(|_| {
-                            edge_warn!(
+                            edge_log!(
+                                console_warn,
                                 "Documents",
                                 index,
                                 "Failed to remove document {} from keyword shard for keyword '{}'",
@@ -254,7 +258,8 @@ impl Document {
                             .ok()
                             .unwrap();
 
-                    edge_debug!(
+                    edge_log!(
+                        console_debug,
                         "Documents",
                         index,
                         "Adding document {} to keyword shard for keyword '{}'",
@@ -265,7 +270,8 @@ impl Document {
                         .add_document(store, doc_id, score)
                         .await
                         .unwrap_or_else(|_| {
-                            edge_warn!(
+                            edge_log!(
+                                console_warn,
                                 "Documents",
                                 index,
                                 "Failed to add document {} to keyword shard for keyword '{}'",
