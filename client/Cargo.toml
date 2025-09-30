@@ -1,0 +1,39 @@
+[package]
+name = "edgesearch-client"
+description = "Rust HTTP client for EdgeSearch"
+license = "MIT"
+readme = "README.md"
+keywords = [
+    "fulltext",
+    "full",
+    "text",
+    "search",
+    "index",
+    "document",
+    "client",
+    "http",
+]
+homepage = "https://github.com/EvanDarwin/edgesearch"
+repository = "https://github.com/EvanDarwin/edgesearch.git"
+version = "0.5.0"
+authors = ["Evan Darwin <me@evandarwin.com>"]
+edition = "2021"
+include = ["/src/**/*", "/Cargo.toml", "/LICENSE", "/README.md"]
+
+[lib]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+urlencoding = "2.1"
+futures = "0.3"
+url = "2.5.7"
+
+# Optional HTTP client implementations
+reqwest = { version = "0.11", features = ["json", "blocking"] }
