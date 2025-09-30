@@ -54,6 +54,8 @@ pub trait KvPersistent: KvEntry + Deserialize<'static> + Serialize {
 
 #[macro_use]
 pub mod document;
+pub mod bulk;
+pub mod encoding;
 pub mod index;
 pub mod index_manager;
 pub mod keyword_shard;

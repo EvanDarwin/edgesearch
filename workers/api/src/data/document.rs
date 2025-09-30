@@ -1,6 +1,3 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
 use crate::data::keyword_shard::KeywordShardData;
 use crate::data::DocumentRef;
 use crate::data::IndexName;
@@ -15,8 +12,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sha2::Sha256;
-use worker::console_debug;
-use worker::console_warn;
+use std::collections::HashSet;
 use worker::kv::KvStore;
 use worker::Env;
 use yake_rust::{Config, StopWords};
@@ -286,18 +282,5 @@ impl Document {
         join_all(removal_futures).await;
         join_all(addition_futures).await;
         Ok(self.revision)
-    }
-
-    pub async fn many_from_remote(
-        keys: Vec<String>,
-        store: Arc<KvStore>,
-    ) -> Result<Vec<Document>, DataStoreError> {
-        let read_futures = keys.iter().map(|key| Document::read(key, &store));
-        let documents: Vec<Document> = join_all(read_futures)
-            .await
-            .into_iter()
-            .filter_map(|doc_opt| doc_opt.ok())
-            .collect();
-        Ok(documents)
     }
 }

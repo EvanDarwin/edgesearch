@@ -83,6 +83,20 @@ envCmd.command('init')
 			"id": "${kvId.trim()}"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "READER",
+				"class_name": "DurableReader"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["DurableReader"]
+		}
+	],
 	"observability": {
 		"enabled": true,
 		"head_sampling_rate": 1.0

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use worker::{console_debug, console_log, console_warn, kv::KvStore};
+use worker::kv::KvStore;
 
 use crate::{
     data::{

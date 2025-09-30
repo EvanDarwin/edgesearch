@@ -19,6 +19,7 @@ When you upload a document, EdgeSearch will automtically identify keywords in yo
   - Limited to EN by default to keep under the 2MB free limit
 - Runs entirely on Cloudflare Workers + KV
   - Cloudflare-scale reading AND writing
+- Includes a Durable Object for processing extremely large searches
 - Easily segment documents and keywords into named indexes
 - Simple expressive query language: `~("pop" && "crave") || "tiktok"`
 - Near-instant single keyword queries `/:index/keyword/:keyword`
@@ -58,7 +59,7 @@ As shown above, the `N_SHARDS` you choose significantly affects both the number 
 ```bash
 pnpm i
 # Create a new wrangler configuration
-pnpm run edgesearch env init
+pnpm run bin/edgesearch.js env init
 # For managing wrangler.jsonc configs
 eval $(pnpm run edgesearch env set)
 pnpm run deploy
@@ -121,6 +122,10 @@ Queries can be complex, and negation works properly.
 
 > The number of keywords in your search scales the number of KV reads that will occur.
 > Searching a keyword requires reading all of the available shards for each keyword.
+>
+> We run a Durable Object called `DurableReader` that allows us to bypass the 1k KV op limit, by splitting key lookups into individual requests.
+>
+> This means you should be able to do some insane queries and have it fetch all the keyword scoring data in a distributed manner.
 
 Some examples:
 

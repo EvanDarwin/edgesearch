@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use worker::{console_debug, kv::KvStore, Env};
+use worker::{kv::KvStore, Env};
 
 use crate::{
     data::{

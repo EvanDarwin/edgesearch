@@ -10,7 +10,7 @@ use crate::{
     lexer::{
         scoring::score_collective_keywords,
         tokenizer::{StringTokenizer, Tokenable},
-        DocumentMatches, Expr, KeywordCache, QueryError, Token,
+        DocumentMatches, Expr, KeywordCache, QueryError,
     },
 };
 
@@ -27,6 +27,8 @@ use crate::{
 pub struct QueryLexer<'a> {
     /// The parsed Abstract Syntax Tree representation of the query
     ast: Expr,
+    /// Reference to the Workers environment for accessing Durable Objects
+    env: &'a worker::Env,
     /// Reference to the KV store for retrieving keyword data
     store: &'a Arc<KvStore>,
     /// Current query execution results
@@ -37,9 +39,14 @@ pub struct QueryLexer<'a> {
 
 impl<'a> QueryLexer<'a> {
     /// Create a new QueryLexer a precompiled query
-    pub fn new(ast: Expr, store: &'a Arc<KvStore>) -> Result<QueryLexer<'a>, QueryError> {
+    pub fn new(
+        ast: Expr,
+        store: &'a Arc<KvStore>,
+        env: &'a worker::Env,
+    ) -> Result<QueryLexer<'a>, QueryError> {
         Ok(QueryLexer {
             ast,
+            env,
             store,
             result: HashMap::new(),
             kw_cache: HashMap::new(),
@@ -47,10 +54,14 @@ impl<'a> QueryLexer<'a> {
     }
 
     /// Create a new [`QueryLexer`] through tokenization of a raw query string
-    pub fn from_str(query: &str, store: &'a Arc<KvStore>) -> Result<QueryLexer<'a>, QueryError> {
+    pub fn from_str(
+        query: &str,
+        store: &'a Arc<KvStore>,
+        env: &'a worker::Env,
+    ) -> Result<QueryLexer<'a>, QueryError> {
         let tokens = StringTokenizer::tokenize(query)?;
         let ast = StringTokenizer::parse(tokens).unwrap();
-        Self::new(ast, store)
+        Self::new(ast, store, env)
     }
 
     /// Collect all [`Expr::Word`] keywords from the AST and turn them into a list of keyword strings
@@ -94,7 +105,7 @@ impl<'a> QueryLexer<'a> {
     /// Retrieves the keywords for all possible keywords in the query, generating a cache
     /// and invoking a maximum of (N * N_SHARDS) KV reads, with a single LIST request.
     async fn preload_keyword_data(&mut self, index: &str) -> () {
-        let manager = KeywordManager::new(index.to_string(), &self.store);
+        let manager = KeywordManager::new(index.to_string(), &self.env, &self.store);
 
         // preload all keyword data in the cache
         let all_keywords = Self::collect_keywords(&self.ast);

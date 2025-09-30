@@ -1,5 +1,6 @@
-//! This module includes the durable object implementations, particularly for
-//! the Compare-and-Swap (CAS) write production in a globally distributed system.
+//! This module includes the implementation for the DO reader that lets us bypass
+//! the 1k OP limit for extremely large queries, or other indexing actions.
 
+pub mod reader;
 // pub mod journal;
 // pub mod journal_data;

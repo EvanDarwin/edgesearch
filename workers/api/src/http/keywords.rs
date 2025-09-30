@@ -17,7 +17,7 @@ pub async fn handle_get_keyword(
     if let Some(index) = ctx.param("index") {
         if let Some(keyword) = ctx.param("keyword") {
             let state = get_kv_data_store(&ctx);
-            let manager = KeywordManager::new(index.into(), &state);
+            let manager = KeywordManager::new(index.into(), &ctx.env, &state);
             let merged = manager.merge_keyword_shards(keyword.into()).await.unwrap();
 
             let document_count = merged.len() as u32;

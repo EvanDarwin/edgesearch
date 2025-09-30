@@ -1,25 +1,26 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use futures::future::join_all;
-use worker::{console_debug, console_log, console_warn, kv::KvStore};
+use worker::{kv::KvStore, Env};
 
 use crate::{
     data::{
-        keyword_shard::KeywordShardData, DataStoreError, IndexName, KvPersistent, PREFIX_KEYWORD,
+        bulk::BulkReader, keyword_shard::get_n_shards, DataStoreError, IndexName, PREFIX_KEYWORD,
     },
+    durable::reader::get_durable_reader_namespace,
     edge_log,
     util::http::url_decode,
 };
 
 pub struct KeywordManager<'a> {
     index: IndexName,
+    env: &'a Env,
     state: &'a Arc<KvStore>,
 }
 
 type MergedKeywordData = Vec<(String, f64)>;
 impl<'a> KeywordManager<'a> {
-    pub fn new(index: IndexName, state: &'a Arc<KvStore>) -> KeywordManager<'a> {
-        return KeywordManager { index, state };
+    pub fn new(index: IndexName, env: &'a Env, state: &'a Arc<KvStore>) -> KeywordManager<'a> {
+        return KeywordManager { index, env, state };
     }
 
     pub async fn merge_keyword_shards(
@@ -45,43 +46,26 @@ impl<'a> KeywordManager<'a> {
             shard_count
         );
 
-        let mut keyword_merge_map: HashMap<String, f64> = HashMap::new();
-        let futures: Vec<_> = keyword_shards
+        let kv_keys: Vec<&str> = keyword_shards
             .keys
             .iter()
-            .map(|entry| {
-                let kv_key = &entry.name;
-                KeywordShardData::read(kv_key, &self.state)
-            })
+            .map(|entry| entry.name.as_str())
             .collect();
 
-        let shard_results = join_all(futures).await;
-        for (i, shard_result) in shard_results.into_iter().enumerate() {
-            let kv_key = &keyword_shards.keys[i].name;
-            match shard_result {
-                Ok(shard) => {
-                    shard.docs.iter().for_each(|(doc, score)| {
-                        keyword_merge_map.insert(doc.clone(), *score);
-                    });
-                }
-                Err(err) => {
-                    edge_log!(
-                        console_warn,
-                        "KeywordManager",
-                        &self.index,
-                        "Failed to read keyword shard data for key {}: {:?}",
-                        kv_key,
-                        err
-                    );
-                }
-            }
-        }
+        // Use our new Durable Object reader to fetch the keyword shards in bulk async
+        let durable_reader_ns = get_durable_reader_namespace(self.env)?;
+        let durable_reader = durable_reader_ns.unique_id()?;
+        let bulk = BulkReader::new(get_n_shards(self.env), &self.state, durable_reader);
+        let kv_keys_len = kv_keys.len();
+        let kv_data = bulk.get_keyword_kv_keys(kv_keys).await;
+        assert!(kv_data.len() == kv_keys_len);
 
-        // Convert the HashMap into a Vec for sorting
-        let mut sorted: Vec<(String, f64)> = keyword_merge_map.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Flatten and sort documents by score
+        let mut merged_keywords: Vec<(String, f64)> =
+            kv_data.iter().flat_map(|data| data.docs.clone()).collect();
+        merged_keywords.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let total_doc_count = sorted.len();
+        let total_doc_count = merged_keywords.len();
         edge_log!(
             console_log,
             "KeywordManager",
@@ -91,6 +75,6 @@ impl<'a> KeywordManager<'a> {
             total_doc_count
         );
 
-        Ok(sorted)
+        Ok(merged_keywords)
     }
 }
