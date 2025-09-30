@@ -56,6 +56,10 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             "/:index/doc",
             with_auth!(http::documents::handle_add_document),
         )
+        .post_async(
+            "/:index/doc/:id",
+            with_auth!(http::documents::handle_add_document),
+        )
         .patch_async(
             "/:index/doc/:id",
             with_auth!(http::documents::handle_update_document),

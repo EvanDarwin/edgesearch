@@ -27,16 +27,16 @@ impl<'a> KeywordManager<'a> {
         &self,
         keyword_raw: String,
     ) -> Result<MergedKeywordData, DataStoreError> {
-        let keyword: String = url_decode(keyword_raw.as_str());
-        let keyword_shards = self
-            .state
-            .list()
-            .prefix(format!("{}:{}{}:", self.index, PREFIX_KEYWORD, keyword))
-            .execute()
-            .await
-            .map_err(DataStoreError::Kv)?;
+        let durable_obj_ns = get_durable_reader_namespace(self.env)?;
+        let durable_obj = durable_obj_ns.unique_id()?;
+        let bulk_reader = BulkReader::new(get_n_shards(self.env), &self.state, durable_obj);
 
-        let shard_count = keyword_shards.keys.len();
+        let keyword: String = url_decode(keyword_raw.as_str());
+        let keyword_shards = bulk_reader
+            .list(format!("{}:{}{}:", self.index, PREFIX_KEYWORD, keyword).as_str())
+            .await?;
+
+        let shard_count = keyword_shards.len();
         edge_log!(
             console_debug,
             "KeywordManager",
@@ -46,18 +46,12 @@ impl<'a> KeywordManager<'a> {
             shard_count
         );
 
-        let kv_keys: Vec<&str> = keyword_shards
-            .keys
-            .iter()
-            .map(|entry| entry.name.as_str())
-            .collect();
+        let keyword_shards_str: Vec<&str> =
+            keyword_shards.iter().map(|entry| entry.as_str()).collect();
 
         // Use our new Durable Object reader to fetch the keyword shards in bulk async
-        let durable_reader_ns = get_durable_reader_namespace(self.env)?;
-        let durable_reader = durable_reader_ns.unique_id()?;
-        let bulk = BulkReader::new(get_n_shards(self.env), &self.state, durable_reader);
-        let kv_keys_len = kv_keys.len();
-        let kv_data = bulk.get_keyword_kv_keys(kv_keys).await;
+        let kv_keys_len = keyword_shards.len();
+        let kv_data = bulk_reader.get_keyword_kv_keys(keyword_shards_str).await;
         assert!(kv_data.len() == kv_keys_len);
 
         // Flatten and sort documents by score

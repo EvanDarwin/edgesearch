@@ -5,7 +5,7 @@ use worker::{kv::KvStore, Method, ObjectId, RequestInit};
 use crate::{
     data::{
         document::Document, encoding::read_length_prefixed, keyword_shard::KeywordShardData,
-        KvPersistent,
+        DataStoreError, KvPersistent,
     },
     durable::reader::{get_document_limit, get_keyword_limit},
 };
@@ -77,6 +77,43 @@ impl<'a> BulkReader<'a> {
             .map(move |bytes| read_length_prefixed::<S>(&bytes))
             .flatten()
             .collect()
+    }
+
+    pub async fn list(&self, prefix: &str) -> Result<Vec<String>, DataStoreError> {
+        let mut response = self
+            .store
+            .list()
+            // .prefix(format!("{}:{}{}:", self.index, PREFIX_KEYWORD, keyword))
+            .prefix(prefix.into())
+            .execute()
+            .await
+            .map_err(DataStoreError::Kv)?;
+        let mut keys: Vec<String> = response.keys.iter().map(|k| k.name.to_string()).collect();
+
+        while !response.list_complete {
+            if let Some(cursor) = response.cursor {
+                response = self
+                    .store
+                    .list()
+                    .prefix(prefix.into())
+                    .cursor(cursor)
+                    .execute()
+                    .await
+                    .map_err(DataStoreError::Kv)?;
+
+                keys.extend(
+                    response
+                        .keys
+                        .iter()
+                        .map(|k| k.name.to_string())
+                        .collect::<Vec<String>>(),
+                );
+            } else {
+                break;
+            }
+        }
+
+        Ok(keys)
     }
 
     /// Directly query a list of keyword shard KV keys from the durable object,

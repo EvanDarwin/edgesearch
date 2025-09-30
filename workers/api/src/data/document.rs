@@ -121,6 +121,17 @@ impl Document {
         };
     }
 
+    pub fn new_with_id(index: &str, id: &str) -> Document {
+        return Document {
+            uuid: id.to_string(),
+            index: index.to_string(),
+            revision: 0u32,
+            lang: None,
+            keywords: None,
+            document_body: None,
+        };
+    }
+
     pub async fn from_remote(
         store: &KvStore,
         index: &str,

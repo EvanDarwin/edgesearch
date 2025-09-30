@@ -92,7 +92,12 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
     }
 
     if let Some(index) = ctx.param("index") {
-        let mut document = Document::new(index);
+        let mut document: Document;
+        if let Some(id) = ctx.param("id") {
+            document = Document::new_with_id(index, &id);
+        } else {
+            document = Document::new(index);
+        }
 
         if let Ok(document_body) = req.text().await {
             let env = &ctx.env;
