@@ -90,6 +90,20 @@ impl Client {
         self.request::<Document>(HttpMethod::GET, &url, None, None)
     }
 
+    pub fn add_document_id(
+        &self,
+        index: &str,
+        doc_id: &str,
+        body: String,
+        lang: Option<&str>,
+    ) -> Result<Document> {
+        let mut url = format!("/{}/doc/{}", index, doc_id);
+        if let Some(lang) = lang {
+            url.push_str(&format!("?lang={}", urlencoding::encode(lang)));
+        }
+        self.request::<Document>(HttpMethod::POST, &url, Some(body), None)
+    }
+
     pub fn add_document(&self, index: &str, body: String, lang: Option<&str>) -> Result<Document> {
         let mut url = format!("/{}/doc", index);
         if let Some(lang) = lang {
