@@ -23,7 +23,7 @@ pub fn document_kv_key(index: &str, uuid: &DocumentRef) -> DocumentRef {
     format!("{}:{}{}", &index, PREFIX_DOCUMENT, &uuid)
 }
 
-// Determine the shard for the document ID that the keyword data is stored in
+/// Determine the shard for the document ID that the keyword data is stored in
 pub fn shard_from_document_id(doc_id: String, num_shards: u32) -> u32 {
     let mut hasher = Sha256::new();
     hasher.update(doc_id.as_bytes());
@@ -105,8 +105,21 @@ fn get_yake_config_from_env(env: &Env) -> Config {
 }
 
 impl Document {
+    const MAX_CUSTOM_ID_LENGTH: usize = 64;
+    const MIN_CUSTOM_ID_LENGTH: usize = 1;
+
     pub fn get_uuid(&self) -> String {
         return self.uuid.clone();
+    }
+
+    /// Determine if the provided ID is a valid (custom)
+    /// document identifier
+    pub fn is_valid_id(id: &str) -> bool {
+        id.len() <= Self::MAX_CUSTOM_ID_LENGTH
+            && id.len() >= Self::MIN_CUSTOM_ID_LENGTH
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     }
 
     pub fn new(index: &str) -> Document {

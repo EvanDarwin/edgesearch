@@ -94,6 +94,14 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
     if let Some(index) = ctx.param("index") {
         let mut document: Document;
         if let Some(id) = ctx.param("id") {
+            if !Document::is_valid_id(&id) {
+                return Response::error(
+                    ErrorResponse {
+                        error: "Invalid document ID format. Must match [a-zA-Z0-9-_]+".into(),
+                    },
+                    400,
+                );
+            }
             document = Document::new_with_id(index, &id);
         } else {
             document = Document::new(index);

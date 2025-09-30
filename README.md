@@ -19,6 +19,7 @@ When you upload a document, EdgeSearch will automtically identify keywords in yo
   - Limited to EN by default to keep under the 2MB free limit
 - Runs entirely on Cloudflare Workers + KV
   - Cloudflare-scale reading AND writing
+- Custom document identifiers
 - Includes a Durable Object for processing extremely large searches
 - Easily segment documents and keywords into named indexes
 - Simple expressive query language: `~("pop" && "crave") || "tiktok"`
@@ -97,6 +98,20 @@ Will return:
 ```json
 {"id":"ysseRtTLpmEBsVEd","rev":1,"lang":"EN","body":"document body goes here","keywords":[["document body",0.9505961599793439],["document",0.8416830712200131],["body",0.7026344174397854]]}
 ```
+
+> ### Documents with Custom IDs
+> You can also create a document at a specific ID, if you need determinability.
+> 
+> ```bash
+> curl -X POST -H "X-API-Key: " -d 'document body goes here' \
+> https://edgesearch.username.workers.dev/sample/doc/abc123
+> ```
+> Will return:
+> ```json
+> {"id":"abc123","rev":1,"lang":"EN","body":"document body goes here","keywords":[...]}
+> ```
+>
+> Attempting to create a document with an ID that already exists will return a HTTP failure.
 
 > Nice Features To Do:
 >  - [ ] Improved JSON processing
