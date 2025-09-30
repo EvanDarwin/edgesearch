@@ -60,6 +60,7 @@ impl Display for Expr {
     }
 }
 
+pub mod document;
 pub mod lexer;
 pub mod scoring;
 pub mod tokenizer;

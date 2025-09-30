@@ -41,15 +41,23 @@ fn main() -> Result<()> {
         "my-index",
         "Hello world content about programming".to_string(),
         None,
+        None,
     )?;
     println!("Added document 1: {}", doc1.uuid);
 
-    let doc2 = client.add_document("my-index", "World peace and harmony".to_string(), None)?;
+    let doc2 = client.add_document(
+        "my-index",
+        "World peace and harmony".to_string(),
+        None,
+        None,
+    )?;
+
     println!("Added document 2: {}", doc2.uuid);
 
     let doc3 = client.add_document(
         "my-index",
         "Programming tutorials and guides".to_string(),
+        None,
         None,
     )?;
     println!("Added document 3: {}", doc3.uuid);

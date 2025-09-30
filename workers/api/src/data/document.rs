@@ -1,14 +1,17 @@
 use crate::data::keyword_shard::KeywordShardData;
 use crate::data::DocumentRef;
+use crate::data::DocumentScore;
 use crate::data::IndexName;
 use crate::data::DEFAULT_YAKE_MIN_CHARS;
 use crate::data::DEFAULT_YAKE_NGRAMS;
 use crate::data::PREFIX_DOCUMENT;
 use crate::edge_log;
+use crate::lexer::document::DocumentLexer;
 use futures::future::join_all;
 use lingua::IsoCode639_1;
 use nanoid::nanoid;
 use once_cell::sync::Lazy;
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sha2::Sha256;
@@ -69,40 +72,6 @@ impl KvPersistent for Document {
 
 static KEYWORD_DETECTOR: Lazy<lingua::LanguageDetector> =
     Lazy::new(|| lingua::LanguageDetectorBuilder::from_all_languages().build());
-
-static STOPWORDS_CACHE: Lazy<std::collections::HashMap<String, StopWords>> = Lazy::new(|| {
-    let mut map = std::collections::HashMap::new();
-    // Iterate over certain IsoCode639_1 variants and pre-load their stopwords
-    let iso_codes = vec![IsoCode639_1::EN];
-    for code in iso_codes {
-        let lang_str = code.to_string();
-        map.insert(
-            lang_str.clone(),
-            StopWords::predefined(&lang_str.as_str()).unwrap(),
-        );
-    }
-    map
-});
-
-fn get_yake_config_from_env(env: &Env) -> Config {
-    let ngrams = env
-        .var("YAKE_NGRAMS")
-        .ok()
-        .map(|v| v.to_string().parse::<u8>().unwrap_or(3))
-        .unwrap_or(DEFAULT_YAKE_NGRAMS);
-    let min_chars = env
-        .var("YAKE_MINIMUM_CHARS")
-        .ok()
-        .map(|v| v.to_string().parse::<u8>().unwrap_or(2))
-        .unwrap_or(DEFAULT_YAKE_MIN_CHARS);
-
-    Config {
-        ngrams: ngrams as usize,
-        minimum_chars: min_chars as usize,
-        remove_duplicates: true,
-        ..Config::default()
-    }
-}
 
 impl Document {
     const MAX_CUSTOM_ID_LENGTH: usize = 64;
@@ -169,10 +138,12 @@ impl Document {
         store: &KvStore,
         env: &Env,
         document_body: String,
+        format: Option<String>,
         recalculate_lang: bool,
     ) -> Result<u32, DataStoreError> {
         // If there is no language set, try to detect it based on our new content
         if self.lang.is_none() || recalculate_lang {
+            // TODO: make this also use DocumentLexer
             let detected_lang = Document::detect_language(&document_body);
             if detected_lang.is_some() {
                 self.lang = detected_lang;
@@ -180,26 +151,22 @@ impl Document {
         }
 
         let lang_str = format!("{}", &self.lang.unwrap());
-        // Check if we have cached stopwords for this language
-        let stopwords = if let Some(cached) = STOPWORDS_CACHE.get(&lang_str) {
-            cached.clone()
-        } else {
-            edge_log!(
-                console_warn,
-                "Document",
-                &self.index,
-                "No cached stopwords for language {}",
-                lang_str
-            );
-            let sw = StopWords::predefined(&lang_str.as_str()).unwrap();
-            sw
-        };
-        let yake_config = get_yake_config_from_env(env);
-        let _keywords: Vec<(String, f64)> =
-            yake_rust::get_n_best(50, &document_body, &stopwords, &yake_config)
-                .iter()
-                .map(|item| (item.keyword.clone(), 1.0f64 - item.score))
-                .collect();
+        let doc_lexer = DocumentLexer::new(env, &document_body);
+        let _keywords: Vec<DocumentScore>;
+
+        let format_name = format.unwrap_or_else(|| "text".to_string());
+        match format_name.as_str() {
+            "json" => {
+                _keywords = doc_lexer.try_json(lang_str.as_str()).unwrap();
+            }
+            "binary" => {
+                // Do not run keyword extraction on binary data
+                _keywords = vec![];
+            }
+            "text" | _ => {
+                _keywords = doc_lexer.try_string(lang_str.as_str()).unwrap();
+            }
+        }
 
         // Calculate which keywords were added/removed
         let mut kw_removed: Vec<&str> = vec![];

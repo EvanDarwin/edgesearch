@@ -9,6 +9,7 @@ use std::{collections::HashMap, str::FromStr};
 use futures::future::Future;
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::Deserialize;
+use url::Url;
 
 pub struct Client {
     base_url: String,
@@ -36,6 +37,12 @@ pub enum HttpMethod {
     PUT,
     PATCH,
     DELETE,
+}
+
+pub enum ContentType {
+    Json,
+    Text,
+    Binary,
 }
 
 static HEADER_API_KEY: &'static str = "X-API-Key";
@@ -96,20 +103,52 @@ impl Client {
         doc_id: &str,
         body: String,
         lang: Option<&str>,
+        content_type: Option<ContentType>,
     ) -> Result<Document> {
-        let mut url = format!("/{}/doc/{}", index, doc_id);
+        let mut url = Url::parse(format!("{}/{}/doc/{}", self.base_url, index, doc_id).as_str())
+            .map_err(ClientError::ParseError)?;
         if let Some(lang) = lang {
-            url.push_str(&format!("?lang={}", urlencoding::encode(lang)));
+            url.query_pairs_mut()
+                .append_pair("lang", urlencoding::encode(lang).as_ref());
         }
-        self.request::<Document>(HttpMethod::POST, &url, Some(body), None)
+        if let Some(kind) = content_type {
+            url.query_pairs_mut().append_pair(
+                "format",
+                match kind {
+                    ContentType::Json => "json",
+                    ContentType::Text => "text",
+                    ContentType::Binary => "binary",
+                },
+            );
+        }
+        self.request::<Document>(HttpMethod::POST, &url.path(), Some(body), None)
     }
 
-    pub fn add_document(&self, index: &str, body: String, lang: Option<&str>) -> Result<Document> {
-        let mut url = format!("/{}/doc", index);
+    pub fn add_document(
+        &self,
+        index: &str,
+        body: String,
+        lang: Option<&str>,
+        content_type: Option<ContentType>,
+    ) -> Result<Document> {
+        let mut url = Url::parse(format!("{}/{}/doc", self.base_url, index).as_str())
+            .map_err(ClientError::ParseError)?;
+
         if let Some(lang) = lang {
-            url.push_str(&format!("?lang={}", urlencoding::encode(lang)));
+            url.query_pairs_mut()
+                .append_pair("lang", urlencoding::encode(lang).as_ref());
         }
-        self.request::<Document>(HttpMethod::POST, &url, Some(body), None)
+        if let Some(kind) = content_type {
+            url.query_pairs_mut().append_pair(
+                "format",
+                match kind {
+                    ContentType::Json => "json",
+                    ContentType::Text => "text",
+                    ContentType::Binary => "binary",
+                },
+            );
+        }
+        self.request::<Document>(HttpMethod::POST, &url.path().to_string(), Some(body), None)
     }
 
     pub fn update_document(

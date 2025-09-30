@@ -36,6 +36,8 @@ pub enum DataStoreError {
     Kv(worker::kv::KvError),
     #[error("Worker error: {0}")]
     Worker(#[from] worker::Error),
+    #[error("Invalid document format: {0}")]
+    InvalidFormat(String),
 }
 
 pub trait KvPersistent: KvEntry + Deserialize<'static> + Serialize {

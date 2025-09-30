@@ -34,14 +34,20 @@ pub async fn handle_get_document(_req: Request, ctx: RouteContext<()>) -> Result
     );
 }
 
-pub async fn handle_update_document(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    #[derive(serde::Serialize)]
-    struct UpdateDocumentResponse {
-        pub updated: bool,
-        pub scores: Vec<(String, f64)>,
-        pub revision: u32,
-    }
+#[derive(serde::Deserialize)]
+struct AddDocumentQueryParams {
+    lang: Option<IsoCode639_1>,
+    format: Option<String>,
+}
 
+#[derive(serde::Serialize)]
+struct UpdateDocumentResponse {
+    pub updated: bool,
+    pub scores: Vec<(String, f64)>,
+    pub revision: u32,
+}
+
+pub async fn handle_update_document(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
     if let Some(index) = ctx.param("index") {
         if let Some(doc_id) = ctx.param("id") {
             let store = get_kv_data_store(&ctx);
@@ -55,11 +61,12 @@ pub async fn handle_update_document(mut req: Request, ctx: RouteContext<()>) -> 
                 );
             }
 
+            let query = req.query::<AddDocumentQueryParams>()?;
             let mut document = document_result.unwrap();
             let document_body = req.text().await?;
             let env = &ctx.env;
             let revision = document
-                .update(&store, env, document_body, false)
+                .update(&store, env, document_body, query.format, false)
                 .await
                 .unwrap();
 
@@ -86,11 +93,6 @@ pub async fn handle_update_document(mut req: Request, ctx: RouteContext<()>) -> 
 }
 
 pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    #[derive(serde::Deserialize)]
-    struct AddDocumentQueryParams {
-        lang: Option<IsoCode639_1>,
-    }
-
     if let Some(index) = ctx.param("index") {
         let mut document: Document;
         if let Some(id) = ctx.param("id") {
@@ -124,16 +126,20 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
 
             let query = req.query::<AddDocumentQueryParams>()?;
             document.set_language(query.lang.unwrap_or(IsoCode639_1::EN));
-            if let Ok(_) = document.update(&store, env, document_body, false).await {
-                return Response::from_json(&document);
-            } else {
+            let document = document
+                .update(&store, env, document_body, query.format, false)
+                .await;
+
+            if document.is_err() {
                 return Response::error(
                     ErrorResponse {
-                        error: "Failed to save document".into(),
+                        error: format!("Failed to add document: {}", document.err().unwrap()),
                     },
                     500,
                 );
             }
+
+            return Response::from_json(&document.unwrap());
         } else {
             return Response::error(
                 ErrorResponse {

@@ -14,6 +14,8 @@ pub enum ClientError {
     Json(#[from] serde_json::Error),
     #[error("Invalid URL: {0}")]
     InvalidUrl(String),
+    #[error("URL parse error: {0}")]
+    ParseError(url::ParseError),
     #[error("API error: {0}")]
     Api(String),
 }
