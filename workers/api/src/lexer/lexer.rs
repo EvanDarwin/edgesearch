@@ -60,8 +60,18 @@ impl<'a> QueryLexer<'a> {
         env: &'a worker::Env,
     ) -> Result<QueryLexer<'a>, QueryError> {
         let tokens = StringTokenizer::tokenize(query)?;
-        let ast = StringTokenizer::parse(tokens).unwrap();
-        Self::new(ast, store, env)
+        let ast = StringTokenizer::parse(tokens);
+        if ast.is_none() {
+            edge_log!(
+                console_error,
+                "QueryLexer",
+                "from_str",
+                "Failed to parse query: {}",
+                query
+            );
+            return Err(QueryError::InvalidQuery(query.to_string(), ast));
+        }
+        Self::new(ast.unwrap(), store, env)
     }
 
     /// Collect all [`Expr::Word`] keywords from the AST and turn them into a list of keyword strings

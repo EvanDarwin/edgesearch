@@ -23,6 +23,8 @@ pub enum QueryError {
     UnclosedQuote,
     #[error("Empty query")]
     EmptyQuery,
+    #[error("Parse error: {0:?}")]
+    InvalidQuery(String, Option<Expr>),
     #[error("Missing closing parenthesis")]
     MissingClosingParen,
 }
