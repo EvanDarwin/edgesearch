@@ -146,6 +146,51 @@ pub async fn handle_add_document(mut req: Request, ctx: RouteContext<()>) -> Res
     return Response::from_bytes("Not implemented".into());
 }
 
-pub async fn handle_delete_document(_req: Request, _ctx: RouteContext<()>) -> Result<Response> {
-    return Response::from_bytes("Not implemented".into());
+#[derive(serde::Serialize)]
+struct DeleteDocumentResponse {
+    pub deleted: bool,
+}
+
+pub async fn handle_delete_document(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    if let Some(index) = ctx.param("index") {
+        let mut document: Document;
+        if let Some(id) = ctx.param("id") {
+            if !Document::is_valid_id(&id) {
+                return Response::error(
+                    ErrorResponse {
+                        error: "Invalid document ID format. Must match [a-zA-Z0-9-_]+".into(),
+                    },
+                    400,
+                );
+            }
+            document = Document::new_with_id(index, &id);
+            let store = get_kv_data_store(&ctx);
+            if let Ok(_) = document.delete(&store).await {
+                return Response::from_json(&serde_json::json!({
+                    "deleted": true,
+                }));
+            } else {
+                return Response::error(
+                    ErrorResponse {
+                        error: "Failed to delete document".into(),
+                    },
+                    500,
+                );
+            }
+        } else {
+            return Response::error(
+                ErrorResponse {
+                    error: "Missing document ID".into(),
+                },
+                400,
+            );
+        }
+    }
+
+    return Response::error(
+        ErrorResponse {
+            error: "Missing index name".into(),
+        },
+        400,
+    );
 }

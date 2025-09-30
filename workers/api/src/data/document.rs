@@ -307,4 +307,12 @@ impl Document {
         join_all(addition_futures).await;
         Ok(self.revision)
     }
+
+    pub async fn delete(&self, store: &KvStore) -> Result<(), DataStoreError> {
+        store
+            .delete(&self.get_kv_key())
+            .await
+            .map_err(DataStoreError::Kv)?;
+        Ok(())
+    }
 }
